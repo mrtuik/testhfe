@@ -103,7 +103,7 @@ jobs:
           wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
           tar -xzf php.tar.gz
           
-          # Bulletproof recursive finder
+          # Dynamic Recursive File Finder
           PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
           if [ -n "$PHP_BIN_PATH" ]; then
               cp "$PHP_BIN_PATH" app/src/main/jniLibs/arm64-v8a/libphp.so
@@ -158,7 +158,7 @@ jobs:
           has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
 
-          # Write app/build.gradle using safe placeholder replacements
+          # Write app/build.gradle using safe placeholder replacements (Removed NDK config block to prevent GHA failures)
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -170,9 +170,6 @@ jobs:
                   targetSdk 33
                   versionCode __VERSION_CODE__
                   versionName "__VERSION_NAME__"
-                  ndk {
-                      abiFilters 'arm64-v8a'
-                  }
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_1_8
@@ -682,7 +679,7 @@ jobs:
           elif screen_rotation == "landscape":
               orientation_mode = "landscape"
 
-          # Write AndroidManifest.xml
+          # Write AndroidManifest.xml (Enhanced with package declaration compatibility)
           android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
               <uses-permission android:name="android.permission.INTERNET" />
@@ -2143,6 +2140,23 @@ jobs:
                           mContext.stopMediaNotification();
                       } else {
                           mContext.startMediaNotification(trackName, "Playing Track", isPlaying);
+                      }
+                  }
+              }
+
+              // Background Native Clipboard Interface Fallback
+              public static class ClipboardInterface {
+                  private Context mContext;
+                  public ClipboardInterface(Context context) {
+                      this.mContext = context;
+                  }
+
+                  @JavascriptInterface
+                  public void copyToClipboard(String text) {
+                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
+                      ClipData clip = ClipData.newPlainText("Copied Text", text);
+                      if (clipboard != null) {
+                          clipboard.setPrimaryClip(clip);
                       }
                   }
               }
