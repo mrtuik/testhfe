@@ -102,9 +102,12 @@ jobs:
           echo "Downloading PocketMine PHP 8.4 static binary for Android arm64..."
           wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
           tar -xzf php.tar.gz
-          if [ -f bin/php ]; then
-              cp bin/php app/src/main/jniLibs/arm64-v8a/libphp.so
-              echo "Successfully packed ARM64 PHP binary as libphp.so."
+          
+          # Bulletproof recursive finder
+          PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
+          if [ -n "$PHP_BIN_PATH" ]; then
+              cp "$PHP_BIN_PATH" app/src/main/jniLibs/arm64-v8a/libphp.so
+              echo "Successfully packed ARM64 PHP binary from $PHP_BIN_PATH to libphp.so."
           else
               echo "ERROR: PHP binary could not be found in tarball!"
               exit 1
@@ -681,7 +684,7 @@ jobs:
 
           # Write AndroidManifest.xml
           android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -883,6 +886,7 @@ jobs:
           import android.app.Notification;
           import android.app.NotificationChannel;
           import android.app.NotificationManager;
+          import android.content.Context;
           import android.content.pm.PackageManager;
           import android.content.ClipData;
           import android.content.ClipboardManager;
@@ -933,13 +937,13 @@ jobs:
           __SWIPE_IMPORT__
 
           public class MainActivity extends AppCompatActivity {
-              private WebView mWebView;
-              private ValueCallback<Uri[]> mUploadMessage;
+              WebView mWebView;
+              ValueCallback<Uri[]> mUploadMessage;
               private final static int FILECHOOSER_RESULTCODE = 1;
               public static MainActivity sInstance;
-              private Process phpProcess;
-              private TextToSpeech mTTS;
-              private SpeechRecognizer mSpeechRecognizer;
+              Process phpProcess;
+              TextToSpeech mTTS;
+              SpeechRecognizer mSpeechRecognizer;
               __SWIPE_DECLARATION__
               __PROGRESS_DECLARATION__
 
@@ -1090,6 +1094,7 @@ jobs:
                   __PERMISSION_MANAGER__
                   createNotificationChannels();
                   mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
+                  mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
                   
                   // Initialize TTS Engine natively
                   mTTS = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
@@ -1889,7 +1894,7 @@ jobs:
 
                   @JavascriptInterface
                   public void copyToClipboard(String text) {
-                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(MainActivity.CLIPBOARD_SERVICE);
+                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
                       ClipData clip = ClipData.newPlainText("Copied Text", text);
                       if (clipboard != null) {
                           clipboard.setPrimaryClip(clip);
