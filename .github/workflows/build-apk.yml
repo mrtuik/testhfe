@@ -50,6 +50,9 @@ jobs:
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
           
+          # Force native library extraction in bundle builds for Android 10+
+          echo "android.bundle.enableUncompressedNativeLibs=false" >> gradle.properties
+          
           # Creating settings.gradle
           cat << 'EOF' > settings.gradle
           rootProject.name = 'WebRunner'
@@ -141,7 +144,6 @@ jobs:
           splash_duration = int(config.get("splashDuration", 2000))
 
           # Dynamic Feature Toggles
-          php_support = config.get("phpSupport", True)
           database_enabled = config.get("databaseEnabled", True)
           camera_enabled = config.get("cameraEnabled", True)
           notifications_enabled = config.get("notificationsEnabled", True)
@@ -157,6 +159,19 @@ jobs:
           zoom_enabled = config.get("zoomEnabled", True)
           has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
+
+          # Auto-detect if there are actually any PHP files inside assets
+          has_php_files = False
+          assets_dir = "app/src/main/assets"
+          for root, dirs, files in os.walk(assets_dir):
+              for file in files:
+                  if file.endswith(".php"):
+                      has_php_files = True
+                      break
+              if has_php_files:
+                  break
+
+          php_support = config.get("phpSupport", True) and has_php_files
 
           # Write app/build.gradle using safe placeholder replacements (Removed NDK config block to prevent GHA failures)
           app_build_gradle_template = """
@@ -679,7 +694,7 @@ jobs:
           elif screen_rotation == "landscape":
               orientation_mode = "landscape"
 
-          # Write AndroidManifest.xml (Enhanced with package declaration compatibility)
+          # Write AndroidManifest.xml (Enhanced with extractNativeLibs="true" for execution support)
           android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
               <uses-permission android:name="android.permission.INTERNET" />
@@ -698,6 +713,7 @@ jobs:
                   android:roundIcon="@mipmap/ic_launcher"
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
+                  android:extractNativeLibs="true"
                   android:theme="@style/AppTheme">
                   
                   <activity
@@ -761,7 +777,7 @@ jobs:
           with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f:
               f.write(splash_activity_java.strip())
 
-          # Generate MainActivity.java with Embedded PHP Engine + Native WebKit CORS fixes
+          # Generate MainActivity.java with Fixed Context Import & WebView Connection Retry Loop on startup
           swipe_import_block = "import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;" if swipe_refresh_enabled else ""
           swipe_declaration_block = "private SwipeRefreshLayout mSwipeRefresh;" if swipe_refresh_enabled else ""
           progress_declaration_block = "private ProgressBar mProgress;" if loading_ui_enabled else ""
@@ -1037,6 +1053,35 @@ jobs:
                               }
                           }
                           return false;
+                      }
+
+                      // WebView Connection Retry Loop to handle PHP server startup race condition
+                      @SuppressWarnings("deprecation")
+                      @Override
+                      public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                          if (failingUrl != null && failingUrl.startsWith("http://127.0.0.1")) {
+                              view.postDelayed(new Runnable() {
+                                  @Override
+                                  public void run() {
+                                      view.reload();
+                                  }
+                              }, 500);
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                          if (request.isForMainFrame()) {
+                              String url = request.getUrl().toString();
+                              if (url.startsWith("http://127.0.0.1")) {
+                                  view.postDelayed(new Runnable() {
+                                      @Override
+                                      public void run() {
+                                          view.reload();
+                                      }
+                                  }, 500);
+                              }
+                          }
                       }
                   });
 
