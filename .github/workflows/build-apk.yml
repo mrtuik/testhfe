@@ -1772,7 +1772,7 @@ jobs:
                       if (resultCode == Activity.RESULT_OK) {
                           if (data != null) {
                               String dataString = data.getDataString();
-                              clipData clipData = data.getClipData();
+                              ClipData clipData = data.getClipData();
                               if (clipData != null) {
                                   results = new Uri[clipData.getItemCount()];
                                   for (int i = 0; i < clipData.getItemCount(); i++) {
@@ -2099,11 +2099,11 @@ jobs:
                           }
 
                           builder.setSmallIcon(mContext.getApplicationInfo().icon)
-                                  .setContentTitle(title)
-                                  .setContentText(message)
-                                  .setColor(ContextCompat.getColor(mContext, R.color.colorPrimary))
-                                  .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                                  .setAutoCancel(true);
+                              .setContentTitle(title)
+                              .setContentText(message)
+                              .setColor(ContextCompat.getColor(mContext, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setAutoCancel(true);
 
                           if (json.optBoolean("ongoing", false)) {
                               builder.setOngoing(true);
@@ -2325,7 +2325,7 @@ jobs:
                               .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
                       Intent notificationIntent = new Intent(this, MainActivity.class);
-                      android.app.PendingIntent pendingIntent = pendingIntent = android.app.PendingIntent.getActivity(this, 0, notificationIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                      android.app.PendingIntent pendingIntent = android.app.PendingIntent.getActivity(this, 0, notificationIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
                       builder.setContentIntent(pendingIntent);
 
                       if (taskType.equals("media")) {
@@ -2460,7 +2460,7 @@ jobs:
 
                       Intent openIntent = new Intent(this, MainActivity.class);
                       openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                      android.app.PendingIntent pOpen = android.app.PendingIntent.getActivity(this, 14, openIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                      android.app.PendingIntent pOpen = android.app.PendingIntent.getActivity(this, 0, openIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
 
                       Intent tuikIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mrtuik"));
                       tuikIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
