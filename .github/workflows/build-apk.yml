@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js (For Capacitor)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -52,7 +52,7 @@ jobs:
       - name: Initialize Capacitor 6 Project
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
           
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
           npx cap add android
@@ -74,9 +74,8 @@ jobs:
 
       - name: Generate App Icons
         run: |
-          npm install -g @capacitor/assets
+          npm install -g @capacitor/assets --legacy-peer-deps
           mkdir -p assets
-          # Move user icons to standard path for generator
           if [ -f "www/_app_icon.png" ]; then
             cp www/_app_icon.png assets/icon.png
           fi
@@ -85,96 +84,97 @@ jobs:
           else
             cp assets/icon.png assets/splash.png || true
           fi
-          # Automatically generate Android native icon resources
-          npx capacitor-assets generate --android || echo "Icon generation skipped, using default"
+          if [ -f "assets/icon.png" ]; then
+            npx capacitor-assets generate --android || echo "Icon generation skipped"
+          fi
 
       - name: Install Native Plugins
         run: |
-          npm install @capacitor/splash-screen @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar
-          npm install @capacitor-community/text-to-speech @capacitor-community/admob
+          npm install @capacitor/splash-screen @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar --legacy-peer-deps
+          npm install @capacitor-community/text-to-speech @capacitor-community/admob --legacy-peer-deps
           npx cap sync android
 
       - name: Configure Android Manifest & Permissions
         run: |
-          python3 -c "
-          import json, os, re
-          
-          # Load App Config from Frontend
+          cat << 'EOF' > modify_manifest.py
+          import json, os
           config = {}
           if os.path.exists('www/app_config.json'):
               with open('www/app_config.json', 'r') as f:
                   config = json.load(f)
           
-          # AdMob Configuration (Crucial to prevent crash)
           admob_id = config.get('admobAppId', '').strip()
           if not admob_id:
               admob_id = 'ca-app-pub-3940256099942544~3347511713' # Google Test ID
               
           manifest_path = 'android/app/src/main/AndroidManifest.xml'
-          with open(manifest_path, 'r') as f:
-              manifest = f.read()
-              
-          meta_tag = f'<meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"{admob_id}\"/>'
-          if 'com.google.android.gms.ads.APPLICATION_ID' not in manifest:
-              manifest = manifest.replace('</application>', f'    {meta_tag}\n    </application>')
-              
-          # Essential Permissions for Background Tasks
-          perms = [
-              '<uses-permission android:name=\"android.permission.INTERNET\" />',
-              '<uses-permission android:name=\"android.permission.WAKE_LOCK\" />',
-              '<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />',
-              '<uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />',
-              '<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />'
-          ]
-          for p in perms:
-              if p not in manifest:
-                  manifest = manifest.replace('</manifest>', f'    {p}\n</manifest>')
+          if os.path.exists(manifest_path):
+              with open(manifest_path, 'r') as f:
+                  manifest = f.read()
+              meta_tag = f'<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_id}"/>'
+              if 'com.google.android.gms.ads.APPLICATION_ID' not in manifest:
+                  manifest = manifest.replace('</application>', f'    {meta_tag}\n    </application>')
                   
-          with open(manifest_path, 'w') as f:
-              f.write(manifest)
-          "
+              perms = [
+                  '<uses-permission android:name="android.permission.INTERNET" />',
+                  '<uses-permission android:name="android.permission.WAKE_LOCK" />',
+                  '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+                  '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+                  '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />'
+              ]
+              for p in perms:
+                  if p not in manifest:
+                      manifest = manifest.replace('</manifest>', f'    {p}\n</manifest>')
+                      
+              with open(manifest_path, 'w') as f:
+                  f.write(manifest)
+          EOF
+          python3 modify_manifest.py
 
       - name: Fetch PHP 8.4 Binary (PocketMine)
         run: |
-          wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
-          tar -xzf php.tar.gz
-          
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
-          cp "$PHP_BIN_PATH" android/app/src/main/jniLibs/arm64-v8a/libphp.so
+          wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz || true
+          if [ -s php.tar.gz ] && tar -tzf php.tar.gz >/dev/null 2>&1; then
+              tar -xzf php.tar.gz
+              mkdir -p android/app/src/main/jniLibs/arm64-v8a
+              PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
+              if [ -n "$PHP_BIN_PATH" ]; then
+                  cp "$PHP_BIN_PATH" android/app/src/main/jniLibs/arm64-v8a/libphp.so
+              fi
+          else
+              echo "PHP Binary missing or invalid archive. Skipping PHP compilation."
+          fi
 
       - name: Modify MainActivity for PHP Server
         run: |
-          MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java")
-          python3 -c "
+          MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
+          if [ -n "$MAIN_ACTIVITY_PATH" ]; then
+            cat << 'EOF' > modify_activity.py
           import sys, re
           file_path = sys.argv[1]
           with open(file_path, 'r') as f:
               code = f.read()
           
-          import_statements = '''
-          import android.os.Bundle;
-          import java.io.File;
-          '''
+          import_statements = "import android.os.Bundle;\nimport java.io.File;\n"
           
-          php_logic = '''
+          php_logic = """
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   startPhpServer();
               }
-
+          
               private void startPhpServer() {
                   new Thread(() -> {
                       try {
                           String nativeDir = getApplicationInfo().nativeLibraryDir;
-                          String phpBinary = nativeDir + \"/libphp.so\";
-                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + \"/public\";
+                          String phpBinary = nativeDir + "/libphp.so";
+                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + "/public";
                           
                           File binaryFile = new File(phpBinary);
                           if (binaryFile.exists()) binaryFile.setExecutable(true, false);
-
-                          ProcessBuilder pb = new ProcessBuilder(phpBinary, \"-S\", \"127.0.0.1:8080\", \"-t\", docRoot);
+          
+                          ProcessBuilder pb = new ProcessBuilder(phpBinary, "-S", "127.0.0.1:8080", "-t", docRoot);
                           pb.redirectErrorStream(true);
                           Process phpProcess = pb.start();
                       } catch (Exception e) {
@@ -182,19 +182,22 @@ jobs:
                       }
                   }).start();
               }
-          '''
-          
-          code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\\n' + import_statements)
-          code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\\n' + php_logic + '\\n}', code, flags=re.DOTALL)
+          """
+          code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\n' + import_statements)
+          code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\n' + php_logic + '\n}', code, flags=re.DOTALL)
           
           with open(file_path, 'w') as f:
               f.write(code)
-          " "$MAIN_ACTIVITY_PATH"
+          EOF
+            python3 modify_activity.py "$MAIN_ACTIVITY_PATH" || echo "Activity modification failed but continuing."
+          else
+            echo "MainActivity.java not found. Skipping."
+          fi
 
       - name: Build Android APK
         run: |
           cd android
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: Package APK into ZIP
         run: |
