@@ -22,10 +22,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (For Capacitor)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -38,9 +38,8 @@ jobs:
 
       - name: Extract User Web Payload
         run: |
-          echo "Extracting payload..."
           mkdir -p www
-          unzip -o "${ZIP_NAME}" -d www/
+          unzip -o "${ZIP_NAME}" -d www/ || true
           
           if [ ! -f www/index.html ] && [ ! -f www/index.php ]; then
               SUBDIR=$(find www/ -name "index.html" -o -name "index.php" -print -quit | sed 's|/index.html||' | sed 's|/index.php||')
@@ -52,11 +51,14 @@ jobs:
       - name: Initialize Capacitor 6 Project
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
+          # Lock versions to explicitly use Capacitor 6 to prevent Gradle incompatibility
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
           
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
-          npx cap add android
-
+          
+          # Force remove typescript/js config to avoid conflicts with our JSON config
+          rm -f capacitor.config.ts capacitor.config.js
+          
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "___PACKAGE_ID___",
@@ -71,10 +73,12 @@ jobs:
           EOF
           sed -i "s/___PACKAGE_ID___/${PACKAGE_ID}/g" capacitor.config.json
           sed -i "s/___APP_NAME___/${APP_NAME}/g" capacitor.config.json
+          
+          npx cap add android
 
       - name: Generate App Icons
         run: |
-          npm install -g @capacitor/assets --legacy-peer-deps
+          npm install -g @capacitor/assets@3 --legacy-peer-deps
           mkdir -p assets
           if [ -f "www/_app_icon.png" ]; then
             cp www/_app_icon.png assets/icon.png
@@ -85,13 +89,16 @@ jobs:
             cp assets/icon.png assets/splash.png || true
           fi
           if [ -f "assets/icon.png" ]; then
-            npx capacitor-assets generate --android || echo "Icon generation skipped"
+            npx capacitor-assets generate --android || true
           fi
 
       - name: Install Native Plugins
         run: |
-          npm install @capacitor/splash-screen @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar --legacy-peer-deps
+          # Install Official Capacitor 6 plugins
+          npm install @capacitor/splash-screen@6 @capacitor/app@6 @capacitor/haptics@6 @capacitor/keyboard@6 @capacitor/status-bar@6 --legacy-peer-deps
+          # Install Community Plugins
           npm install @capacitor-community/text-to-speech @capacitor-community/admob --legacy-peer-deps
+          
           npx cap sync android
 
       - name: Configure Android Manifest & Permissions
@@ -100,12 +107,15 @@ jobs:
           import json, os
           config = {}
           if os.path.exists('www/app_config.json'):
-              with open('www/app_config.json', 'r') as f:
-                  config = json.load(f)
+              try:
+                  with open('www/app_config.json', 'r') as f:
+                      config = json.load(f)
+              except:
+                  pass
           
           admob_id = config.get('admobAppId', '').strip()
           if not admob_id:
-              admob_id = 'ca-app-pub-3940256099942544~3347511713' # Google Test ID
+              admob_id = 'ca-app-pub-3940256099942544~3347511713'
               
           manifest_path = 'android/app/src/main/AndroidManifest.xml'
           if os.path.exists(manifest_path):
@@ -131,7 +141,7 @@ jobs:
           EOF
           python3 modify_manifest.py
 
-      - name: Fetch PHP 8.4 Binary (PocketMine)
+      - name: Fetch PHP 8.4 Binary
         run: |
           wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz || true
           if [ -s php.tar.gz ] && tar -tzf php.tar.gz >/dev/null 2>&1; then
@@ -141,8 +151,6 @@ jobs:
               if [ -n "$PHP_BIN_PATH" ]; then
                   cp "$PHP_BIN_PATH" android/app/src/main/jniLibs/arm64-v8a/libphp.so
               fi
-          else
-              echo "PHP Binary missing or invalid archive. Skipping PHP compilation."
           fi
 
       - name: Modify MainActivity for PHP Server
@@ -155,7 +163,8 @@ jobs:
           with open(file_path, 'r') as f:
               code = f.read()
           
-          import_statements = "import android.os.Bundle;\nimport java.io.File;\n"
+          if 'import android.os.Bundle;' not in code:
+              code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport java.io.File;\n')
           
           php_logic = """
               @Override
@@ -170,10 +179,8 @@ jobs:
                           String nativeDir = getApplicationInfo().nativeLibraryDir;
                           String phpBinary = nativeDir + "/libphp.so";
                           String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + "/public";
-                          
                           File binaryFile = new File(phpBinary);
                           if (binaryFile.exists()) binaryFile.setExecutable(true, false);
-          
                           ProcessBuilder pb = new ProcessBuilder(phpBinary, "-S", "127.0.0.1:8080", "-t", docRoot);
                           pb.redirectErrorStream(true);
                           Process phpProcess = pb.start();
@@ -183,21 +190,19 @@ jobs:
                   }).start();
               }
           """
-          code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\n' + import_statements)
-          code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\n' + php_logic + '\n}', code, flags=re.DOTALL)
           
-          with open(file_path, 'w') as f:
-              f.write(code)
+          if 'startPhpServer()' not in code:
+              code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\n' + php_logic + '\n}', code, flags=re.DOTALL)
+              with open(file_path, 'w') as f:
+                  f.write(code)
           EOF
-            python3 modify_activity.py "$MAIN_ACTIVITY_PATH" || echo "Activity modification failed but continuing."
-          else
-            echo "MainActivity.java not found. Skipping."
+            python3 modify_activity.py "$MAIN_ACTIVITY_PATH"
           fi
 
       - name: Build Android APK
         run: |
           cd android
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug
 
       - name: Package APK into ZIP
         run: |
@@ -207,7 +212,8 @@ jobs:
           
           cd android/app/build/outputs/apk/debug/
           mv app-debug.apk $APK_NAME
-          zip -r $ZIP_NAME $APK_NAME
+          # Fixed path traversal so ZIP is accurately placed at repo root for the release
+          zip -r ../../../../../$ZIP_NAME $APK_NAME
 
       - name: Generate Unique Release Tag
         id: tag_gen
@@ -223,7 +229,7 @@ jobs:
           body: "Automated Capacitor Native Build for **${{ env.APP_NAME }}**"
           files: |
             android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/debug/*.zip
+            *.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
