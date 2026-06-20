@@ -175,7 +175,7 @@ jobs:
           except Exception:
               php_port = 8080
 
-          # Missing configuration elements read from app_config.json
+          # Advanced properties missing in previous build script version
           file_transfer_enabled = config.get("fileTransferEnabled", True)
           location_enabled = config.get("locationEnabled", True)
           biometric_enabled = config.get("biometricEnabled", False)
@@ -1899,7 +1899,7 @@ jobs:
                   mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
                       @Override
                       public void onReceiveValue(String value) {
-                          if (value == null || value.equals("\"default\"") || value.equals("null") || value.equals("false")) {
+                          if (value == null || value.equals("\\\"default\\\"") || value.equals("null") || value.equals("false")) {
                               if (mWebView.canGoBack()) {
                                   mWebView.goBack();
                               } else {
