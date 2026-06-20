@@ -31,12 +31,54 @@ jobs:
       - name: Setup Android SDK (Licenses Auto-Accept)
         uses: android-actions/setup-android@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
         with:
-          node-version: '20'
+          gradle-version: '8.2'
 
-      - name: Fetch and Extract Web Assets
+      - name: Initialize Android Web-View Wrapper Template
+        run: |
+          echo "Initializing lightweight Gradle project structure..."
+          mkdir -p app/src/main/java/com/example/runner
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          
+          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          
+          # Force native library extraction in bundle builds for Android 10+
+          echo "android.bundle.enableUncompressedNativeLibs=false" >> gradle.properties
+          
+          # Creating settings.gradle
+          cat << 'EOF' > settings.gradle
+          rootProject.name = 'WebRunner'
+          include ':app'
+          EOF
+          
+          # Creating build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.0.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+      - name: Fetch Website Archive and Clean Assets
         run: |
           echo "Verifying local web workspace ZIP archive inside repository..."
           if [ ! -f "${ZIP_NAME}" ]; then
@@ -45,187 +87,2718 @@ jobs:
           fi
           
           echo "Extracting workspace targets deep into assets folder..."
-          mkdir -p www
-          unzip -o "${ZIP_NAME}" -d www/
+          unzip -o "${ZIP_NAME}" -d app/src/main/assets/
           
-          if [ ! -f www/index.html ]; then
-              echo "index.html not found in assets root. Checking subdirectories..."
-              SUBDIR=$(find www/ -name "index.html" -print -quit | sed 's|/index.html||')
-              if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "www" ]; then
-                  echo "Found index.html in directory: $SUBDIR. Flattening contents..."
-                  mv "$SUBDIR"/* www/
+          if [ ! -f app/src/main/assets/index.html ] && [ ! -f app/src/main/assets/index.php ]; then
+              echo "Index file not found in assets root. Checking subdirectories..."
+              SUBDIR=$(find app/src/main/assets/ \( -name "index.html" -o -name "index.php" \) -print -quit | sed 's|/index.html||' | sed 's|/index.php||')
+              if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "app/src/main/assets" ]; then
+                  echo "Found index in directory: $SUBDIR. Flattening contents..."
+                  mv "$SUBDIR"/* app/src/main/assets/
               else
-                  echo "WARNING: index.html not found in package payload!"
+                  echo "WARNING: index file not found in package payload!"
               fi
           fi
 
-      - name: Setup Capacitor Project Automatically
+      - name: Fetch and Bundle Native PHP 8.4 Binary for Android ARM64
         run: |
-          echo "Creating automated dynamic Node configuration package.json..."
-          cat << 'EOF' > package.json
-          {
-            "name": "hopfile-compiled-app",
-            "version": "1.0.0",
-            "dependencies": {
-              "@capacitor/core": "^6.0.0",
-              "@capacitor/android": "^6.0.0",
-              "@capacitor/splash-screen": "^6.0.0",
-              "@capacitor/status-bar": "^6.0.0",
-              "@capacitor/app": "^6.0.0",
-              "@capacitor/preferences": "^6.0.0",
-              "@capacitor/filesystem": "^6.0.0",
-              "@capacitor/network": "^6.0.0",
-              "@capacitor/share": "^6.0.0",
-              "@capacitor/haptics": "^6.0.0",
-              "@capacitor/local-notifications": "^6.0.0",
-              "@capacitor/push-notifications": "^6.0.0",
-              "@capacitor/camera": "^6.0.0",
-              "@capacitor-community/text-to-speech": "^6.0.0",
-              "@capacitor-community/admob": "^6.0.0",
-              "capacitor-music-controls-plugin": "^6.0.0"
-            },
-            "devDependencies": {
-              "@capacitor/cli": "^6.0.0"
-            }
-          }
-          EOF
+          echo "Downloading PocketMine PHP 8.4 static binary for Android arm64..."
+          wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
+          tar -xzf php.tar.gz
           
-          echo "Installing Capacitor core frameworks and stable native plugins..."
-          npm install --legacy-peer-deps
-          
-          echo "Creating capacitor.config.json directly to bypass interactive prompts..."
-          cat << EOF > capacitor.config.json
-          {
-            "appId": "${PACKAGE_ID}",
-            "appName": "${APP_NAME}",
-            "webDir": "www",
-            "server": {
-              "androidScheme": "https",
-              "cleartext": true
-            },
-            "plugins": {
-              "SplashScreen": {
-                "launchShowDuration": 2000,
-                "backgroundColor": "#111827"
-              },
-              "PushNotifications": {
-                "presentationOptions": ["badge", "sound", "alert"]
-              }
-            }
-          }
-          EOF
-          
-          echo "Injecting Android platform wrappers..."
-          npx cap add android
+          # Dynamic Recursive File Finder
+          PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
+          if [ -n "$PHP_BIN_PATH" ]; then
+              cp "$PHP_BIN_PATH" app/src/main/jniLibs/arm64-v8a/libphp.so
+              echo "Successfully packed ARM64 PHP binary from $PHP_BIN_PATH to libphp.so."
+          else
+              echo "ERROR: PHP binary could not be found in tarball!"
+              exit 1
+          fi
 
-      - name: Process Custom Assets & Merge Native Configs
+      - name: Generate Native Android Code from app_config.json
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pil
+          python3 -m pip install Pillow
           
-          cat << 'EOF' > configure_capacitor.py
+          cat << 'EOF' > build_assets.py
           import json
           import os
+          import urllib.request
           from PIL import Image
 
-          config_path = "www/app_config.json"
+          config_path = "app/src/main/assets/app_config.json"
           config = {}
           if os.path.exists(config_path):
               with open(config_path, "r") as f:
                   config = json.load(f)
 
-          # Extract configurations with fallbacks
+          # Extract configurations with secure fallbacks
           app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
           version_name = config.get("versionName", os.environ.get("VERSION_NAME", "1.0.0"))
-          version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
-          theme_color = config.get("themeColor", "#4F46E5")
+          
+          raw_version_code = config.get("versionCode", os.environ.get("VERSION_CODE", "1"))
+          try:
+              version_code = int(raw_version_code)
+          except Exception:
+              version_code = 1
 
-          # 1. Scaling mipmap standard launcher icons dynamically if icon provided
-          icon_src = "www/_app_icon.png"
-          if os.path.exists(icon_src):
-              print("Custom launcher icon found! Resizing into mipmaps...")
-              sizes = {
-                  "mipmap-mdpi": 48,
-                  "mipmap-hdpi": 72,
-                  "mipmap-xhdpi": 96,
-                  "mipmap-xxhdpi": 144,
-                  "mipmap-xxxhdpi": 192
+          theme_color = config.get("themeColor", "#4F46E5")
+          homepage = config.get("homepage", "index.html")
+          screen_rotation = config.get("screenRotation", "auto")
+          splash_bg_color = config.get("splashBgColor", "#111827")
+          
+          raw_splash_duration = config.get("splashDuration", 2000)
+          try:
+              splash_duration = int(raw_splash_duration)
+          except Exception:
+              splash_duration = 2000
+
+          # Dynamic Feature Toggles
+          database_enabled = config.get("databaseEnabled", True)
+          camera_enabled = config.get("cameraEnabled", True)
+          notifications_enabled = config.get("notificationsEnabled", True)
+          local_storage_enabled = config.get("localStorageEnabled", True)
+          fullscreen_enabled = config.get("fullscreenEnabled", True)
+          autoplay_enabled = config.get("autoplayEnabled", True)
+          microphone_enabled = config.get("microphoneEnabled", True)
+          hide_title_bar = config.get("hideTitleBar", True)
+          swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
+          long_press_enabled = config.get("longPressEnabled", True)
+          loading_ui_enabled = config.get("loadingUIEnabled", True)
+          pc_mode_enabled = config.get("pcModeEnabled", False)
+          zoom_enabled = config.get("zoomEnabled", True)
+          
+          raw_php_port = config.get("phpPort", 8080)
+          try:
+              php_port = int(raw_php_port)
+          except Exception:
+              php_port = 8080
+
+          # Advanced properties missing in previous build script version
+          file_transfer_enabled = config.get("fileTransferEnabled", True)
+          location_enabled = config.get("locationEnabled", True)
+          biometric_enabled = config.get("biometricEnabled", False)
+          splash_screen_enabled = config.get("splashScreenEnabled", False)
+          keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
+          secure_window_enabled = config.get("secureWindowEnabled", False)
+          external_browser_enabled = config.get("externalBrowserEnabled", True)
+          double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
+          clipboard_enabled = config.get("clipboardEnabled", True)
+
+          # Confirm if custom splash actually exists physically on disk
+          has_custom_splash = config.get("hasCustomSplash", False) and os.path.exists("app/src/main/assets/_splash_icon.png")
+
+          # Auto-detect if there are actually any PHP files inside assets
+          has_php_files = False
+          assets_dir = "app/src/main/assets"
+          for root, dirs, files in os.walk(assets_dir):
+              for file in files:
+                  if file.endswith(".php"):
+                      has_php_files = True
+                      break
+              if has_php_files:
+                  break
+
+          php_support = config.get("phpSupport", True) and has_php_files
+
+          # Write app/build.gradle using safe placeholder replacements
+          app_build_gradle_template = """
+          apply plugin: 'com.android.application'
+          android {
+              namespace 'com.example.runner'
+              compileSdk 33
+              defaultConfig {
+                  applicationId "__PACKAGE_ID__"
+                  minSdk 24
+                  targetSdk 33
+                  versionCode __VERSION_CODE__
+                  versionName "__VERSION_NAME__"
               }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+          }
+          dependencies {
+              implementation 'androidx.webkit:webkit:1.6.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+              implementation 'com.google.android.material:material:1.9.0'
+              implementation 'androidx.media:media:1.6.0'
+              __BIOMETRIC_DEPENDENCY__
+          }
+          """
+          biometric_dependency = "implementation 'androidx.biometric:biometric:1.1.0'" if biometric_enabled else ""
+          app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id)
+          app_build_gradle = app_build_gradle.replace("__VERSION_CODE__", str(version_code))
+          app_build_gradle = app_build_gradle.replace("__VERSION_NAME__", version_name)
+          app_build_gradle = app_build_gradle.replace("__BIOMETRIC_DEPENDENCY__", biometric_dependency)
+          
+          with open("app/build.gradle", "w") as f:
+              f.write(app_build_gradle.strip())
+
+          # Write colors.xml
+          colors_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">__THEME_COLOR__</color>
+              <color name="colorPrimaryDark">__THEME_COLOR__</color>
+              <color name="colorAccent">__THEME_COLOR__</color>
+              <color name="splashBg">__SPLASH_BG_COLOR__</color>
+          </resources>
+          """
+          colors_xml = colors_xml_template.replace("__THEME_COLOR__", theme_color).replace("__SPLASH_BG_COLOR__", splash_bg_color)
+          with open("app/src/main/res/values/colors.xml", "w") as f:
+              f.write(colors_xml.strip())
+
+          # Write styles.xml
+          theme_style_parent = "Theme.AppCompat.Light.NoActionBar"
+          theme_items = ""
+          if fullscreen_enabled:
+              theme_items = """<item name="android:windowFullscreen">true</item>
+              <item name="android:windowNoTitle">true</item>"""
+          elif hide_title_bar:
+              theme_items = """<item name="android:windowNoTitle">true</item>"""
+          else:
+              theme_style_parent = "Theme.AppCompat.Light.DarkActionBar"
+
+          styles_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="SplashTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">@color/splashBg</item>
+                  <item name="android:windowFullscreen">true</item>
+              </style>
+              <style name="AppTheme" parent="__THEME_STYLE_PARENT__">
+                  <item name="colorPrimary">@color/colorPrimary</item>
+                  <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+                  <item name="colorAccent">@color/colorAccent</item>
+                  __THEME_ITEMS__
+              </style>
+          </resources>
+          """
+          styles_xml = styles_xml_template.replace("__THEME_STYLE_PARENT__", theme_style_parent).replace("__THEME_ITEMS__", theme_items)
+          with open("app/src/main/res/values/styles.xml", "w") as f:
+              f.write(styles_xml.strip())
+
+          # Write custom_notification.xml layout
+          custom_notification_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="64dp"
+              android:orientation="horizontal"
+              android:padding="8dp"
+              android:background="#1E293B">
+              <ImageView
+                  android:id="@+id/custom_icon"
+                  android:layout_width="48dp"
+                  android:layout_height="48dp"
+                  android:src="@mipmap/ic_launcher"
+                  android:layout_gravity="center_vertical"/>
+              <LinearLayout
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:orientation="vertical"
+                  android:layout_marginLeft="12dp"
+                  android:layout_gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/custom_title"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Custom Title"
+                      android:textColor="#F8FAFC"
+                      android:textSize="14sp"
+                      android:textStyle="bold"/>
+                  <TextView
+                      android:id="@+id/custom_text"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Custom Message Body"
+                      android:textColor="#94A3B8"
+                      android:textSize="12sp"/>
+              </LinearLayout>
+          </LinearLayout>
+          """
+          with open("app/src/main/res/layout/custom_notification.xml", "w") as f:
+              f.write(custom_notification_xml.strip())
+
+          # Generate Drawables and Theme-Aware Vector Icons
+          os.makedirs("app/src/main/res/drawable", exist_ok=True)
+          
+          def write_vector(filename, path_data, viewport="24"):
+              xml = f"""<vector xmlns:android="http://schemas.android.com/apk/res/android"
+                  android:width="24dp"
+                  android:height="24dp"
+                  android:viewportWidth="{viewport}"
+                  android:viewportHeight="{viewport}">
+                  <path android:fillColor="?android:attr/textColorPrimary" android:pathData="{path_data}"/>
+              </vector>"""
+              with open(f"app/src/main/res/drawable/{filename}.xml", "w") as f_out:
+                  f_out.write(xml.strip())
+
+          write_vector("ic_notification_prev", "M6,18V6h2v12H6z M9.5,12l8.5,6V6L9.5,12z")
+          write_vector("ic_notification_play", "M8,5v14l11-7L8,5z")
+          write_vector("ic_notification_pause", "M6,19h4V5H6V19z M14,5v14h4V5H14z")
+          write_vector("ic_notification_next", "M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z")
+          write_vector("ic_notification_stop", "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41z")
+          write_vector("ic_notification_rewind", "M11,18V6l-8.5,6L11,18z M11.5,12l8.5,6V6L11.5,12z")
+          write_vector("ic_notification_fast_forward", "M13,6v12l8.5-6L13,6z M12.5,12l-8.5,6V6L12.5,12z")
+          write_vector("ic_notification_code", "M9.4,16.6L4.8,12l4.6-4.6L8,6l-6,6l6,6L9.4,16.6z M14.6,16.6l4.6-4.6l-4.6-4.6L16,6l6,6l-6,6L14.6,16.6z", "24")
+
+          # Write bg_tuik_badge.xml
+          bg_tuik_badge_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#232B3E" />
+              <corners android:radius="16dp" />
+          </shape>"""
+          with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
+              f.write(bg_tuik_badge_xml.strip())
+
+          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
+          custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/notification_root"
+              android:layout_width="match_parent"
+              android:layout_height="80dp"
+              android:padding="8dp"
+              android:clickable="true"
+              android:focusable="true">
+              <ImageView
+                  android:id="@+id/media_album_art"
+                  android:layout_width="52dp"
+                  android:layout_height="52dp"
+                  android:scaleType="centerCrop"
+                  android:layout_alignParentLeft="true"
+                  android:layout_centerVertical="true"
+                  android:layout_marginLeft="4dp"/>
+              <LinearLayout
+                  android:id="@+id/metadata_layout"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:layout_toRightOf="@id/media_album_art"
+                  android:layout_toLeftOf="@+id/media_controls_layout"
+                  android:layout_centerVertical="true"
+                  android:layout_marginLeft="10dp"
+                  android:layout_marginRight="10dp">
+                  <TextView
+                      android:id="@+id/media_track_title"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Track Title"
+                      android:textColor="?android:attr/textColorPrimary"
+                      android:textSize="13sp"
+                      android:textStyle="bold"
+                      android:ellipsize="end"
+                      android:singleLine="true"/>
+                  <LinearLayout
+                      android:id="@+id/tuik_badge"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal"
+                      android:background="@drawable/bg_tuik_badge"
+                      android:paddingLeft="8dp"
+                      android:paddingRight="8dp"
+                      android:paddingTop="3dp"
+                      android:paddingBottom="3dp"
+                      android:layout_marginTop="4dp"
+                      android:gravity="center_vertical"
+                      android:clickable="true"
+                      android:focusable="true">
+                      <ImageView
+                          android:layout_width="10dp"
+                          android:layout_height="10dp"
+                          android:src="@drawable/ic_notification_code"
+                          android:layout_marginRight="4dp"/>
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Tuik"
+                          android:textColor="#F8FAFC"
+                          android:textSize="9sp"
+                          android:textStyle="bold"/>
+                  </LinearLayout>
+              </LinearLayout>
+              <LinearLayout
+                  android:id="@+id/media_controls_layout"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:layout_alignParentRight="true"
+                  android:layout_centerVertical="true"
+                  android:layout_marginRight="4dp"
+                  android:gravity="center">
+                  <ImageButton
+                      android:id="@+id/btn_prev"
+                      android:layout_width="28dp"
+                      android:layout_height="28dp"
+                      android:src="@drawable/ic_notification_prev"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Previous"/>
+                  <ImageButton
+                      android:id="@+id/btn_play_pause"
+                      android:layout_width="32dp"
+                      android:layout_height="32dp"
+                      android:src="@drawable/ic_notification_pause"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Play/Pause"
+                      android:layout_marginLeft="6dp"
+                      android:layout_marginRight="6dp"/>
+                  <ImageButton
+                      android:id="@+id/btn_next"
+                      android:layout_width="28dp"
+                      android:layout_height="28dp"
+                      android:src="@drawable/ic_notification_next"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Next"/>
+              </LinearLayout>
+              <ProgressBar
+                  android:id="@+id/custom_media_progress"
+                  style="?android:attr/progressBarStyleHorizontal"
+                  android:layout_width="match_parent"
+                  android:layout_height="3dp"
+                  android:layout_alignParentBottom="true"
+                  android:progressDrawable="@android:drawable/progress_horizontal"
+                  android:progressTint="?android:attr/colorAccent"
+                  android:progressBackgroundTint="?android:attr/textColorSecondary"
+                  android:max="100"
+                  android:progress="0"/>
+          </RelativeLayout>
+          """
+          with open("app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
+              f.write(custom_media_collapsed_xml.strip())
+
+          # Generate custom_media_expanded.xml
+          custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/notification_root_large"
+              android:layout_width="match_parent"
+              android:layout_height="144dp"
+              android:padding="12dp"
+              android:clickable="true"
+              android:focusable="true">
+              <ImageView
+                  android:id="@+id/media_album_art_large"
+                  android:layout_width="64dp"
+                  android:layout_height="64dp"
+                  android:scaleType="centerCrop"
+                  android:layout_alignParentLeft="true"
+                  android:layout_alignParentTop="true"/>
+              <LinearLayout
+                  android:id="@+id/details_layout"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:layout_toRightOf="@id/media_album_art_large"
+                  android:layout_marginLeft="14dp"
+                  android:layout_alignParentTop="true"
+                  android:layout_toLeftOf="@+id/btn_stop">
+                  <TextView
+                      android:id="@+id/media_track_title_large"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Track Title"
+                      android:textColor="?android:attr/textColorPrimary"
+                      android:textSize="14sp"
+                      android:textStyle="bold"
+                      android:ellipsize="end"
+                      android:singleLine="true"/>
+                  <LinearLayout
+                      android:id="@+id/tuik_badge_large"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal"
+                      android:background="@drawable/bg_tuik_badge"
+                      android:paddingLeft="8dp"
+                      android:paddingRight="8dp"
+                      android:paddingTop="3dp"
+                      android:paddingBottom="3dp"
+                      android:layout_marginTop="4dp"
+                      android:gravity="center_vertical"
+                      android:clickable="true"
+                      android:focusable="true">
+                      <ImageView
+                          android:layout_width="10dp"
+                          android:layout_height="10dp"
+                          android:src="@drawable/ic_notification_code"
+                          android:layout_marginRight="4dp"/>
+                      <TextView
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="Tuik"
+                          android:textColor="#F8FAFC"
+                          android:textSize="9sp"
+                          android:textStyle="bold"/>
+                  </LinearLayout>
+              </LinearLayout>
+              <ImageButton
+                  android:id="@+id/btn_stop"
+                  android:layout_width="28dp"
+                  android:layout_height="28dp"
+                  android:src="@drawable/ic_notification_stop"
+                  android:background="?android:attr/selectableItemBackgroundBorderless"
+                  android:layout_alignParentRight="true"
+                  android:layout_alignParentTop="true"/>
+              <LinearLayout
+                  android:id="@+id/timeline_layout"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:layout_below="@id/media_album_art_large"
+                  android:layout_marginTop="12dp"
+                  android:gravity="center_vertical">
+                  <TextView
+                      android:id="@+id/txt_current_time"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="0:00"
+                      android:textColor="?android:attr/textColorSecondary"
+                      android:textSize="10sp"/>
+                  <ProgressBar
+                      android:id="@+id/custom_media_progress_large"
+                      style="?android:attr/progressBarStyleHorizontal"
+                      android:layout_width="0dp"
+                      android:layout_height="4dp"
+                      android:layout_weight="1"
+                      android:layout_marginLeft="8dp"
+                      android:layout_marginRight="8dp"
+                      android:progressTint="?android:attr/colorAccent"
+                      android:progressBackgroundTint="?android:attr/textColorSecondary"
+                      android:max="100"
+                      android:progress="0"/>
+                  <TextView
+                      android:id="@+id/txt_total_duration"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="0:00"
+                      android:textColor="?android:attr/textColorSecondary"
+                      android:textSize="10sp"/>
+              </LinearLayout>
+              <LinearLayout
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:layout_below="@id/timeline_layout"
+                  android:layout_centerHorizontal="true"
+                  android:layout_marginTop="8dp"
+                  android:gravity="center">
+                  <ImageButton
+                      android:id="@+id/btn_prev_large"
+                      android:layout_width="32dp"
+                      android:layout_height="32dp"
+                      android:src="@drawable/ic_notification_prev"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Previous"/>
+                  <ImageButton
+                      android:id="@+id/btn_rewind_large"
+                      android:layout_width="32dp"
+                      android:layout_height="32dp"
+                      android:src="@drawable/ic_notification_rewind"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:layout_marginLeft="10dp"
+                      android:contentDescription="Rewind"/>
+                  <ImageButton
+                      android:id="@+id/btn_play_pause_large"
+                      android:layout_width="36dp"
+                      android:layout_height="36dp"
+                      android:src="@drawable/ic_notification_pause"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Play/Pause"
+                      android:layout_marginLeft="14dp"
+                      android:layout_marginRight="14dp"/>
+                  <ImageButton
+                      android:id="@+id/btn_fast_forward_large"
+                      android:layout_width="32dp"
+                      android:layout_height="32dp"
+                      android:src="@drawable/ic_notification_fast_forward"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:layout_marginRight="10dp"
+                      android:contentDescription="Fast Forward"/>
+                  <ImageButton
+                      android:id="@+id/btn_next_large"
+                      android:layout_width="32dp"
+                      android:layout_height="32dp"
+                      android:src="@drawable/ic_notification_next"
+                      android:background="?android:attr/selectableItemBackgroundBorderless"
+                      android:contentDescription="Next"/>
+              </LinearLayout>
+          </RelativeLayout>
+          """
+          with open("app/src/main/res/layout/custom_media_expanded.xml", "w") as f:
+              f.write(custom_media_expanded_xml.strip())
+
+          # Write activity_splash.xml
+          splash_src_drawable = "@drawable/splash_icon" if has_custom_splash else "@mipmap/ic_launcher"
+          activity_splash_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@color/splashBg">
+              <ImageView
+                  android:id="@+id/splash_logo"
+                  android:layout_width="160dp"
+                  android:layout_height="160dp"
+                  android:layout_centerInParent="true"
+                  android:src="__SPLASH_SRC_DRAWABLE__"
+                  android:visibility="visible" />
+          </RelativeLayout>
+          """
+          activity_splash_xml = activity_splash_xml_template.replace("__SPLASH_SRC_DRAWABLE__", splash_src_drawable)
+          with open("app/src/main/res/layout/activity_splash.xml", "w") as f:
+              f.write(activity_splash_xml.strip())
+
+          # Write activity_main.xml
+          loading_progress_bar = ""
+          if loading_ui_enabled:
+              loading_progress_bar = """<ProgressBar
+                  android:id="@+id/progressBar"
+                  style="?android:attr/progressBarStyleHorizontal"
+                  android:layout_width="match_parent"
+                  android:layout_height="6dp"
+                  android:layout_alignParentTop="true"
+                  android:progressDrawable="@android:drawable/progress_horizontal"
+                  android:visibility="gone" />"""
+
+          layout_below_attr = 'android:layout_below="@id/progressBar"' if loading_ui_enabled else ""
+          
+          swipe_refresh_layout_start = ""
+          swipe_refresh_layout_end = ""
+          webview_layout_below = ""
+          
+          if swipe_refresh_enabled:
+              swipe_refresh_layout_start = """<androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                  android:id="@+id/swipeRefreshLayout"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  __LAYOUT_BELOW__>"""
+              swipe_refresh_layout_start = swipe_refresh_layout_start.replace("__LAYOUT_BELOW__", layout_below_attr)
+              swipe_refresh_layout_end = "</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>"
+          else:
+              webview_layout_below = layout_below_attr
+
+          activity_main_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+              __LOADING_PROGRESS_BAR__
+              __SWIPE_REFRESH_LAYOUT_START__
+              <WebView
+                  android:id="@+id/webview"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  __WEBVIEW_LAYOUT_BELOW__ />
+              __SWIPE_REFRESH_LAYOUT_END__
+          </RelativeLayout>
+          """
+          activity_main_xml = activity_main_xml_template.replace("__LOADING_PROGRESS_BAR__", loading_progress_bar)
+          activity_main_xml = activity_main_xml.replace("__SWIPE_REFRESH_LAYOUT_START__", swipe_refresh_layout_start)
+          activity_main_xml = activity_main_xml.replace("__WEBVIEW_LAYOUT_BELOW__", webview_layout_below)
+          activity_main_xml = activity_main_xml.replace("__SWIPE_REFRESH_LAYOUT_END__", swipe_refresh_layout_end)
+          
+          with open("app/src/main/res/layout/activity_main.xml", "w") as f:
+              f.write(activity_main_xml.strip())
+
+          # Handle Advanced Android Permissions
+          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
+          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
+          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
+          
+          storage_p = ""
+          if local_storage_enabled or file_transfer_enabled:
+              storage_p = """
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+              """
+              
+          location_p = ""
+          if location_enabled:
+              location_p = """
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              """
+              
+          biometric_p = ""
+          if biometric_enabled:
+              biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />'
+
+          # Rotation preference mapping
+          orientation_mode = "unspecified"
+          if screen_rotation == "portrait":
+              orientation_mode = "portrait"
+          elif screen_rotation == "landscape":
+              orientation_mode = "landscape"
+
+          # Write AndroidManifest.xml (Dynamic Activities Launcher Setup)
+          if splash_screen_enabled:
+              activities_manifest = """
+                  <activity
+                      android:name="com.example.runner.SplashActivity"
+                      android:exported="true"
+                      android:theme="@style/SplashTheme"
+                      android:hardwareAccelerated="true"
+                      android:screenOrientation="__ORIENTATION_MODE__">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name="com.example.runner.MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:hardwareAccelerated="true"
+                      android:screenOrientation="__ORIENTATION_MODE__">
+                  </activity>
+              """
+          else:
+              activities_manifest = """
+                  <activity
+                      android:name="com.example.runner.MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:hardwareAccelerated="true"
+                      android:theme="@style/AppTheme"
+                      android:screenOrientation="__ORIENTATION_MODE__">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              """
+
+          android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              __CAMERA_PERMISSION_MANIFEST__
+              __AUDIO_PERMISSION_MANIFEST__
+              __NOTIFICATION_PERMISSION_MANIFEST__
+              __STORAGE_PERMISSION_MANIFEST__
+              __LOCATION_PERMISSION_MANIFEST__
+              __BIOMETRIC_PERMISSION_MANIFEST__
+              
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="true"
+                  android:extractNativeLibs="true"
+                  android:hardwareAccelerated="true"
+                  android:theme="@style/AppTheme">
+                  
+                  __ACTIVITIES_STAGED__
+
+                  <receiver android:name="com.example.runner.MainActivity$NotificationReceiver" android:exported="false" />
+                  <service android:name="com.example.runner.MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
+              </application>
+          </manifest>
+          """
+          android_manifest_xml = android_manifest_xml_template.replace("__CAMERA_PERMISSION_MANIFEST__", camera_p)
+          android_manifest_xml = android_manifest_xml.replace("__AUDIO_PERMISSION_MANIFEST__", audio_p)
+          android_manifest_xml = android_manifest_xml.replace("__NOTIFICATION_PERMISSION_MANIFEST__", notif_p)
+          android_manifest_xml = android_manifest_xml.replace("__STORAGE_PERMISSION_MANIFEST__", storage_p)
+          android_manifest_xml = android_manifest_xml.replace("__LOCATION_PERMISSION_MANIFEST__", location_p)
+          android_manifest_xml = android_manifest_xml.replace("__BIOMETRIC_PERMISSION_MANIFEST__", biometric_p)
+          android_manifest_xml = android_manifest_xml.replace("__ACTIVITIES_STAGED__", activities_manifest)
+          android_manifest_xml = android_manifest_xml.replace("__ORIENTATION_MODE__", orientation_mode)
+          
+          with open("app/src/main/AndroidManifest.xml", "w") as f:
+              f.write(android_manifest_xml.strip())
+
+          # Write SplashActivity.java (Only written if splash screen is enabled)
+          if splash_screen_enabled:
+              splash_activity_java_template = """package com.example.runner;
+              import androidx.appcompat.app.AppCompatActivity;
+              import android.content.Intent;
+              import android.os.Bundle;
+              import android.os.Handler;
+
+              public class SplashActivity extends AppCompatActivity {
+                  @Override
+                  protected void onCreate(Bundle savedInstanceState) {
+                      super.onCreate(savedInstanceState);
+                      setContentView(R.layout.activity_splash);
+                      
+                      new Handler().postDelayed(new Runnable() {
+                          @Override
+                          public void run() {
+                              Intent intent = new Intent(SplashActivity.this, MainActivity.class);
+                              startActivity(intent);
+                              finish();
+                          }
+                      }, __SPLASH_DURATION__);
+                  }
+              }
+              """
+              splash_activity_java = splash_activity_java_template.replace("__SPLASH_DURATION__", str(splash_duration))
+              with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f:
+                  f.write(splash_activity_java.strip())
+
+          # Generate MainActivity.java with Fixed Context Import & WebView Connection Retry Loop on startup
+          swipe_import_block = "import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;" if swipe_refresh_enabled else ""
+          swipe_declaration_block = "private SwipeRefreshLayout mSwipeRefresh;" if swipe_refresh_enabled else ""
+          progress_declaration_block = "private ProgressBar mProgress;" if loading_ui_enabled else ""
+          
+          progress_init_block = "mProgress = findViewById(R.id.progressBar);" if loading_ui_enabled else ""
+          progress_update_block = """if (mProgress != null) {
+              mProgress.setProgress(newProgress);
+              if (newProgress == 100) {
+                  mProgress.setVisibility(View.GONE);
+              } else {
+                  mProgress.setVisibility(View.VISIBLE);
+              }
+          }""" if loading_ui_enabled else ""
+
+          local_storage_block = ""
+          if local_storage_enabled:
+              local_storage_block = """webSettings.setDomStorageEnabled(true);
+              webSettings.setDatabaseEnabled(true);
+              webSettings.setAllowFileAccess(true);
+              webSettings.setAllowContentAccess(true);
+              webSettings.setAllowFileAccessFromFileURLs(true);
+              webSettings.setAllowUniversalAccessFromFileURLs(true);"""
+
+          zoom_block = ""
+          if zoom_enabled:
+              zoom_block = """webSettings.setSupportZoom(true);
+              webSettings.setBuiltInZoomControls(true);
+              webSettings.setDisplayZoomControls(false);"""
+
+          autoplay_ua_block = ""
+          if autoplay_enabled:
+              autoplay_ua_block += "webSettings.setMediaPlaybackRequiresUserGesture(false);\n"
+          if pc_mode_enabled:
+              autoplay_ua_block += """webSettings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/114.0.0.0 Safari/537.36");
+              webSettings.setUseWideViewPort(true);
+              webSettings.setLoadWithOverviewMode(true);"""
+
+          swipe_refresh_code_block = ""
+          swipe_refresh_stop_code_block = ""
+          if swipe_refresh_enabled:
+              swipe_refresh_code_block = """mSwipeRefresh = findViewById(R.id.swipeRefreshLayout);
+              mSwipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+                  @Override
+                  public void onRefresh() {
+                      mWebView.reload();
+                  }
+              });"""
+              swipe_refresh_stop_code_block = """if (mSwipeRefresh != null) {
+                  mSwipeRefresh.setRefreshing(false);
+              }"""
+
+          long_press_code_block = ""
+          if not long_press_enabled:
+              long_press_code_block = """mWebView.setOnLongClickListener(new View.OnLongClickListener() {
+                  @Override
+                  public boolean onLongClick(View v) {
+                      return true;
+                  }
+              });
+                  mWebView.setLongClickable(false);"""
+
+          download_manager_block = ""
+          if file_transfer_enabled:
+              download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
+                  @Override
+                  public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                      if (url.startsWith("blob:") || url.startsWith("data:")) {
+                          return;
+                      }
+                      DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                      request.setMimeType(mimetype);
+                      String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+                      request.setTitle(fileName);
+                      request.setDescription("Downloading target assets...");
+                      request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                      DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                      if (dm != null) {
+                          dm.enqueue(request);
+                          Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                      }
+                  }
+              });"""
+
+          permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              permissions.add("android.permission.POST_NOTIFICATIONS");
+              permissions.add("android.permission.READ_MEDIA_IMAGES");
+              permissions.add("android.permission.READ_MEDIA_AUDIO");
+              permissions.add("android.permission.READ_MEDIA_VIDEO");
+          }
+          """
+          if camera_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
+          if microphone_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
+          if local_storage_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
+          if location_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
+
+          permission_manager_block += """
+          if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+              ArrayList<String> remaining = new ArrayList<>();
+              for (String p : permissions) {
+                  if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                      remaining.add(p);
+                  }
+              }
+              if (!remaining.isEmpty()) {
+                  requestPermissions(remaining.toArray(new String[0]), 101);
+              }
+          }
+          """
+
+          main_activity_java_template = """package com.example.runner;
+          import android.Manifest;
+          import androidx.appcompat.app.AppCompatActivity;
+          import android.app.Activity;
+          import android.app.DownloadManager;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.content.Context;
+          import android.content.pm.PackageManager;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.view.View;
+          import android.view.Window;
+          import android.view.WindowManager;
+          import android.webkit.DownloadListener;
+          import android.webkit.PermissionRequest;
+          import android.webkit.URLUtil;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import androidx.webkit.WebViewAssetLoader;
+          import android.widget.ProgressBar;
+          import android.widget.Toast;
+          import androidx.core.content.ContextCompat;
+          import androidx.core.app.NotificationCompat;
+          import androidx.core.app.NotificationManagerCompat;
+          import android.content.ContentValues;
+          import android.provider.MediaStore;
+          import java.io.File;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+          import java.io.FileOutputStream;
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+          import com.example.runner.R;
+          import android.speech.tts.TextToSpeech;
+          import android.speech.RecognizerIntent;
+          import android.speech.SpeechRecognizer;
+          import android.speech.RecognitionListener;
+          import android.support.v4.media.session.MediaSessionCompat;
+          import android.support.v4.media.session.PlaybackStateCompat;
+          import android.support.v4.media.MediaMetadataCompat;
+          import java.util.ArrayList;
+          import java.util.Locale;
+          __BIOMETRIC_IMPORTS__
+          __SWIPE_IMPORT__
+
+          public class MainActivity extends AppCompatActivity {
+              WebView mWebView;
+              ValueCallback<Uri[]> mUploadMessage;
+              private final static int FILECHOOSER_RESULTCODE = 1;
+              public static MainActivity sInstance;
+              Process phpProcess;
+              TextToSpeech mTTS;
+              SpeechRecognizer mSpeechRecognizer;
+              private boolean doubleBackToExitPressedOnce = false;
+              __SWIPE_DECLARATION__
+              __PROGRESS_DECLARATION__
+
+              private android.os.Handler mPollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+              private Runnable mPollRunnable = new Runnable() {
+                  @Override
+                  public void run() {
+                      if (mWebView != null) {
+                          mWebView.evaluateJavascript("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) { var name = 'HopFile Player'; var el = document.getElementById('playerTrackName'); if(el) name = el.textContent; return audio.currentTime + ',' + audio.duration + ',' + audio.paused + ',' + name; } return ''; })()", new ValueCallback<String>() {
+                              @Override
+                              public void onReceiveValue(String value) {
+                                  if (value != null && !value.equals("null") && !value.isEmpty()) {
+                                      String clean = value.replace(String.valueOf('"'), "");
+                                      if (!clean.trim().isEmpty()) {
+                                          String[] parts = clean.split(",");
+                                          if (parts.length >= 4) {
+                                              try {
+                                                  double currentTime = Double.parseDouble(parts[0]);
+                                                  double duration = Double.parseDouble(parts[1]);
+                                                  boolean paused = Boolean.parseBoolean(parts[2]);
+                                                  String trackName = parts[3];
+                                                  updateMediaSessionState(trackName, currentTime, duration, !paused);
+                                              } catch (Exception e) {
+                                                  e.printStackTrace();
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+                          });
+                      }
+                      mPollHandler.postDelayed(this, 1000);
+                  }
+              };
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  
+                  // Keep Screen On Toggle Check
+                  if (__KEEP_SCREEN_ON__) {
+                      getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  }
+                  
+                  // Secure Window Toggle Check
+                  if (__SECURE_WINDOW__) {
+                      getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+                  }
+
+                  setContentView(R.layout.activity_main);
+                  sInstance = this;
+
+                  mWebView = findViewById(R.id.webview);
+                  __PROGRESS_INIT__
+
+                  WebSettings webSettings = mWebView.getSettings();
+                  webSettings.setJavaScriptEnabled(true);
+                  webSettings.setGeolocationEnabled(__GEOLOCATION_ENABLED__);
+                  webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  __LOCAL_STORAGE__
+                  __ZOOM__
+                  __AUTOPLAY_UA__
+                  __SWIPE_REFRESH_CODE__
+                  __LONG_PRESS__
+                  __DOWNLOAD_MANAGER__
+
+                  // Native System WebKit Secure Context AssetLoader
+                  final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                          .build();
+
+                  mWebView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          return assetLoader.shouldInterceptRequest(request.getUrl());
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          super.onPageFinished(view, url);
+                          __SWIPE_REFRESH_STOP_CODE__
+                      }
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                          if (url == null) return false;
+                          
+                          // Google Login (disallowed_useragent) bypass on WebView
+                          if (url.contains("accounts.google.com")) {
+                              String defaultUA = view.getSettings().getUserAgentString();
+                              String cleanUA = defaultUA.replace("; wv", "").replace("Version/4.0 ", "");
+                              view.getSettings().setUserAgentString(cleanUA);
+                              return false;
+                          }
+
+                          // Support deep linking for custom URI schemes
+                          if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("sms:") || url.startsWith("whatsapp:") || url.startsWith("intent:")) {
+                              try {
+                                  Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                                  startActivity(intent);
+                                  return true;
+                              } catch (Exception e) {
+                                  e.printStackTrace();
+                                  return false;
+                              }
+                          }
+
+                          // External Link Handler Toggle Check
+                          if (__EXTERNAL_BROWSER_ENABLED__) {
+                              if (!url.startsWith("http://127.0.0.1") && !url.startsWith("https://appassets.androidplatform.net")) {
+                                  try {
+                                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                                      startActivity(intent);
+                                      return true;
+                                  } catch (Exception e) {
+                                      e.printStackTrace();
+                                  }
+                              }
+                          }
+                          return false;
+                      }
+
+                      // WebView Connection Retry Loop to handle PHP server startup race condition
+                      @SuppressWarnings("deprecation")
+                      @Override
+                      public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                          if (failingUrl != null && failingUrl.startsWith("http://127.0.0.1")) {
+                              view.postDelayed(new Runnable() {
+                                  @Override
+                                  public void run() {
+                                      view.reload();
+                                  }
+                              }, 500);
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                          if (request.isForMainFrame()) {
+                              String url = request.getUrl().toString();
+                              if (url.startsWith("http://127.0.0.1")) {
+                                  view.postDelayed(new Runnable() {
+                                      @Override
+                                      public void run() {
+                                          view.reload();
+                                      }
+                                  }, 500);
+                              }
+                          }
+                      }
+                  });
+
+                  mWebView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(final PermissionRequest request) {
+                          runOnUiThread(new Runnable() {
+                              @Override
+                              public void run() {
+                                  try {
+                                      request.grant(request.getResources());
+                                  } catch (Exception e) {
+                                      e.printStackTrace();
+                                  }
+                              }
+                          });
+                      }
+
+                      @Override
+                      public void onProgressChanged(WebView view, int newProgress) {
+                          super.onProgressChanged(view, newProgress);
+                          __PROGRESS_UPDATE__
+                      }
+                      @Override
+                      public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams) {
+                          if (!__FILE_TRANSFER_ENABLED__) {
+                              return false;
+                          }
+                          if (mUploadMessage != null) {
+                              mUploadMessage.onReceiveValue(null);
+                          }
+                          mUploadMessage = filePathCallback;
+                          Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                          intent.addCategory(Intent.CATEGORY_OPENABLE);
+                          intent.setType("*/*");
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                              intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                          }
+                          try {
+                              startActivityForResult(Intent.createChooser(intent, "Select File"), FILECHOOSER_RESULTCODE);
+                          } catch (Exception e) {
+                              mUploadMessage = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+
+                  mWebView.setBackgroundColor(0);
+                  __PERMISSION_MANAGER__
+                  createNotificationChannels();
+                  
+                  // Inject JavaScript Interfaces
+                  mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
+                  
+                  if (__CLIPBOARD_ENABLED__) {
+                      mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
+                  }
+                  
+                  // Initialize TTS Engine natively
+                  mTTS = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+                      @Override
+                      public void onInit(int status) {
+                          if (status == TextToSpeech.SUCCESS) {
+                              mTTS.setLanguage(Locale.US);
+                          }
+                      }
+                  });
+
+                  // Conditional loading logic (Built-in PHP server vs WebViewAssetLoader)
+                  if (__PHP_SUPPORT_ENABLED__) {
+                      copyAssetFolder("", getFilesDir().getAbsolutePath() + "/www");
+                      startPhpServer(__PHP_PORT__);
+                      mWebView.loadUrl("http://127.0.0.1:__PHP_PORT__/__HOMEPAGE__");
+                  } else {
+                      // Custom WebViewAssetLoader secure context over file protocol for YouTube restrictions bypass
+                      mWebView.loadUrl("https://appassets.androidplatform.net/assets/__HOMEPAGE__");
+                  }
+
+                  __BIOMETRIC_INIT_LOGIC__
+                  handleNotificationAction(getIntent());
+              }
+
+              private void copyAssetFolder(String srcFolder, String destPath) {
+                  try {
+                      String[] files = getAssets().list(srcFolder);
+                      if (files == null) return;
+                      File destDir = new File(destPath);
+                      if (!destDir.exists()) destDir.mkdirs();
+                      for (String file : files) {
+                          String srcFile = srcFolder.isEmpty() ? file : srcFolder + "/" + file;
+                          String destFile = destPath + "/" + file;
+                          String[] subFiles = getAssets().list(srcFile);
+                          if (subFiles != null && subFiles.length > 0) {
+                              copyAssetFolder(srcFile, destFile);
+                          } else {
+                              copyAsset(srcFile, destFile);
+                          }
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              private void copyAsset(String srcFile, String destFile) {
+                  try (InputStream in = getAssets().open(srcFile);
+                       OutputStream out = new FileOutputStream(destFile)) {
+                      byte[] buffer = new byte[8192];
+                      int read;
+                      while ((read = in.read(buffer)) != -1) {
+                          out.write(buffer, 0, read);
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              private void startPhpServer(final int port) {
+                  new Thread(new Runnable() {
+                      @Override
+                      public void run() {
+                          try {
+                              String nativeDir = getApplicationInfo().nativeLibraryDir;
+                              String phpBinary = nativeDir + "/libphp.so";
+                              String docRoot = getFilesDir().getAbsolutePath() + "/www";
+
+                              File binaryFile = new File(phpBinary);
+                              if (binaryFile.exists()) {
+                                  binaryFile.setExecutable(true, false);
+                              }
+
+                              ProcessBuilder pb = new ProcessBuilder(
+                                  phpBinary,
+                                  "-S", "127.0.0.1:" + port,
+                                  "-t", docRoot
+                              );
+                              pb.directory(new File(docRoot));
+                              pb.redirectErrorStream(true);
+                              phpProcess = pb.start();
+
+                              InputStream is = phpProcess.getInputStream();
+                              BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+                              String line;
+                              while ((line = reader.readLine()) != null) {
+                                  android.util.Log.d("PHPServer", line);
+                              }
+                          } catch (Exception e) {
+                              e.printStackTrace();
+                          }
+                      }
+                  }).start();
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (sInstance == this) {
+                      sInstance = null;
+                  }
+                  mPollHandler.removeCallbacks(mPollRunnable);
+                  if (phpProcess != null) {
+                      phpProcess.destroy();
+                  }
+                  if (mTTS != null) {
+                      mTTS.stop();
+                      mTTS.shutdown();
+                  }
+                  super.onDestroy();
+              }
+
+              private void createNotificationChannels() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                      if (manager == null) return;
+
+                      // Standard Channel
+                      NotificationChannel defaultChan = new NotificationChannel("default", "App Channel", NotificationManager.IMPORTANCE_DEFAULT);
+                      defaultChan.setDescription("Standard notifications for app activities.");
+                      manager.createNotificationChannel(defaultChan);
+
+                      // Media Channel
+                      NotificationChannel mediaChan = new NotificationChannel("media_channel", "Media Control", NotificationManager.IMPORTANCE_LOW);
+                      mediaChan.setDescription("Controls and player configurations for active media playback.");
+                      manager.createNotificationChannel(mediaChan);
+
+                      // Silent Channel
+                      NotificationChannel silentChan = new NotificationChannel("silent_channel", "Silent Notifications", NotificationManager.IMPORTANCE_MIN);
+                      silentChan.setDescription("Low importance notifications without sound.");
+                      manager.createNotificationChannel(silentChan);
+
+                      // Heads-Up Channel
+                      NotificationChannel highChan = new NotificationChannel("high_importance", "Urgent Updates", NotificationManager.IMPORTANCE_HIGH);
+                      highChan.setDescription("Heads-up alert dialog style notifications.");
+                      highChan.enableVibration(true);
+                      manager.createNotificationChannel(highChan);
+
+                      // Progress Tracker Channel
+                      NotificationChannel progressChan = new NotificationChannel("progress_channel", "Task Progress", NotificationManager.IMPORTANCE_LOW);
+                      progressChan.setDescription("Shows file upload/download state trackers.");
+                      manager.createNotificationChannel(progressChan);
+
+                      // Critical Channel for Call/Alarm
+                      NotificationChannel criticalChan = new NotificationChannel("critical_channel", "Critical Reminders", NotificationManager.IMPORTANCE_HIGH);
+                      criticalChan.setDescription("Alarms, phone calls, and critical action requests.");
+                      criticalChan.enableVibration(true);
+                      manager.createNotificationChannel(criticalChan);
+
+                      // Foreground Service Channel
+                      NotificationChannel serviceChan = new NotificationChannel("foreground_tasks", "Background Services", NotificationManager.IMPORTANCE_DEFAULT);
+                      serviceChan.setDescription("Foreground service status alerts.");
+                      manager.createNotificationChannel(serviceChan);
+                  }
+              }
+
+              public void showNotification(String title, String message) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify((int) System.currentTimeMillis(), builder.build());
+              }
+
+              public void showBigTextNotification(String title, String message, String bigText, String summary) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setStyle(new NotificationCompat.BigTextStyle()
+                                  .bigText(bigText)
+                                  .setSummaryText(summary))
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2006, builder.build());
+              }
+
+              public void showBigPictureNotification(String title, String message, String base64Image) {
+                  try {
+                      byte[] decodedString = Base64.decode(base64Image, Base64.DEFAULT);
+                      android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+
+                      NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                              .setSmallIcon(getApplicationInfo().icon)
+                              .setContentTitle(title)
+                              .setContentText(message)
+                              .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setStyle(new NotificationCompat.BigPictureStyle()
+                                      .bigPicture(bitmap))
+                              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                              .setAutoCancel(true);
+
+                      NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                      manager.notify(2007, builder.build());
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                      showNotification(title, message);
+                  }
+              }
+
+              public void showInboxNotification(String title, String message, String linesJsonArray) {
+                  try {
+                      org.json.JSONArray jsonArray = new org.json.JSONArray(linesJsonArray);
+                      NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                              .setSmallIcon(getApplicationInfo().icon)
+                              .setContentTitle(title)
+                              .setContentText(message)
+                              .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+
+                      NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
+                      for (int i = 0; i < jsonArray.length(); i++) {
+                          inboxStyle.addLine(jsonArray.getString(i));
+                      }
+
+                      builder.setStyle(inboxStyle)
+                              .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                              .setAutoCancel(true);
+
+                      NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                      manager.notify(2008, builder.build());
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                      showNotification(title, message);
+                  }
+              }
+
+              public void showActionNotification(String title, String message, String buttonText, String extraValue) {
+                  Intent actionIntent = new Intent(this, MainActivity.class);
+                  actionIntent.putExtra("notification_action", extraValue);
+                  actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(this, (int)System.currentTimeMillis(), actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .addAction(android.R.drawable.ic_menu_send, buttonText, pIntent)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2009, builder.build());
+              }
+
+              public void showHeadsUpNotification(String title, String message) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "high_importance")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setDefaults(NotificationCompat.DEFAULT_ALL)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2013, builder.build());
+              }
+
+              public void showMessagingNotification(String senderName, String messageText, String conversationTitle) {
+                  NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle("Me")
+                          .setConversationTitle(conversationTitle)
+                          .addMessage(messageText, System.currentTimeMillis(), senderName);
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setStyle(style)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2010, builder.build());
+              }
+
+              public void showFullScreenNotification(String title, String message) {
+                  Intent fullScreenIntent = new Intent(this, MainActivity.class);
+                  android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(this, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "critical_channel")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_MAX)
+                          .setCategory(NotificationCompat.CATEGORY_CALL)
+                          .setFullScreenIntent(pIntent, true)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2011, builder.build());
+              }
+
+              public void showProgressNotification(String title, String message, int progress, int max, boolean indeterminate, int id) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "progress_channel")
+                      .setSmallIcon(getApplicationInfo().icon)
+                      .setContentTitle(title)
+                      .setContentText(message)
+                      .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                      .setOngoing(progress < max)
+                      .setPriority(NotificationCompat.PRIORITY_LOW)
+                      .setProgress(max, progress, indeterminate);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(id, builder.build());
+              }
+
+              public void scheduleNotification(String title, String message, final int delaySeconds) {
+                  Intent alarmIntent = new Intent(this, NotificationReceiver.class);
+                  alarmIntent.putExtra("title", title);
+                  alarmIntent.putExtra("message", message);
+                  android.app.PendingIntent pIntent = android.app.PendingIntent.getBroadcast(this, (int)System.currentTimeMillis(), alarmIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                  android.app.AlarmManager alarmManager = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+                  if (alarmManager != null) {
+                      long triggerAtMillis = System.currentTimeMillis() + (delaySeconds * 1000L);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+                      } else {
+                          alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+                      }
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              Toast.makeText(MainActivity.this, "Reminder scheduled in " + delaySeconds + " seconds!", Toast.LENGTH_SHORT).show();
+                          }
+                      });
+                  }
+              }
+
+              public void showSilentNotification(String title, String message) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "silent_channel")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_MIN)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2012, builder.build());
+              }
+
+              public void showOngoingNotification(String title, String message, int id) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle("App Alert")
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .setOngoing(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(id, builder.build());
+              }
+
+              public void showGroupedNotifications(String groupKey, String title1, String text1, String title2, String text2) {
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+
+                  NotificationCompat.Builder child1 = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title1)
+                          .setContentText(text1)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setGroup(groupKey)
+                          .setAutoCancel(true);
+
+                  NotificationCompat.Builder child2 = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title2)
+                          .setContentText(text2)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setGroup(groupKey)
+                          .setAutoCancel(true);
+
+                  NotificationCompat.Builder summary = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle("Group Summary")
+                          .setContentText("You have new group updates")
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setGroup(groupKey)
+                          .setGroupSummary(true)
+                          .setAutoCancel(true);
+
+                  manager.notify(3001, child1.build());
+                  manager.notify(3002, child2.build());
+                  manager.notify(3003, summary.build());
+              }
+
+              public void showCustomLayoutNotification(String title, String message) {
+                  android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(getPackageName(), R.layout.custom_notification);
+                  remoteViews.setImageViewResource(R.id.custom_icon, getApplicationInfo().icon);
+                  remoteViews.setTextViewText(R.id.custom_title, title);
+                  remoteViews.setTextViewText(R.id.custom_text, message);
+
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setCustomContentView(remoteViews)
+                          .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                          .setAutoCancel(true);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(2014, builder.build());
+              }
+
+              public void updateBadgeCount(int count) {
+                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle("App Alert")
+                          .setContentText("Active Badge count set to " + count)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setNumber(count);
+
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.notify(9999, builder.build());
+              }
+
+              public void startMediaNotification(String trackName, String artistName, boolean isPlaying) {
+                  Intent serviceIntent = new Intent(this, ForegroundService.class);
+                  serviceIntent.putExtra("task_type", "media");
+                  serviceIntent.putExtra("trackName", trackName);
+                  serviceIntent.putExtra("artistName", artistName);
+                  serviceIntent.putExtra("isPlaying", isPlaying);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      startForegroundService(serviceIntent);
+                  } else {
+                      startService(serviceIntent);
+                  }
+                  mPollHandler.removeCallbacks(mPollRunnable);
+                  mPollHandler.post(mPollRunnable);
+              }
+
+              public void stopMediaNotification() {
+                  mPollHandler.removeCallbacks(mPollRunnable);
+                  Intent serviceIntent = new Intent(this, ForegroundService.class);
+                  stopService(serviceIntent);
+              }
+
+              public void startForegroundTask(String taskType, String title, String message) {
+                  Intent serviceIntent = new Intent(this, ForegroundService.class);
+                  serviceIntent.putExtra("task_type", taskType);
+                  serviceIntent.putExtra("title", title);
+                  serviceIntent.putExtra("message", message);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      startForegroundService(serviceIntent);
+                  } else {
+                      startService(serviceIntent);
+                  }
+              }
+
+              public void stopForegroundTask() {
+                  Intent serviceIntent = new Intent(this, ForegroundService.class);
+                  stopService(serviceIntent);
+              }
+
+              public void cancelNotification(int id) {
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.cancel(id);
+              }
+
+              public void cancelAllNotifications() {
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
+                  manager.cancelAll();
+              }
+
+              public void saveBase64File(final String base64Data, final String mimeType, final String fileName) {
+                  try {
+                      final byte[] fileBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              try {
+                                  OutputStream os;
+                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                      ContentValues values = new ContentValues();
+                                      values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                                      values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+                                      values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                                      Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                                      if (uri == null) {
+                                          Toast.makeText(MainActivity.this, "Failed to create download target.", Toast.LENGTH_SHORT).show();
+                                          return;
+                                      }
+                                      os = getContentResolver().openOutputStream(uri);
+                                      if (os != null) {
+                                          os.write(fileBytes);
+                                          os.close();
+                                          Toast.makeText(MainActivity.this, "File saved to Downloads folder!", Toast.LENGTH_LONG).show();
+                                          showNotification("Download Completed", fileName + " saved to Downloads.");
+                                      }
+                                  } else {
+                                      java.io.File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                                      java.io.File file = new java.io.File(downloadDir, fileName);
+                                      os = new java.io.FileOutputStream(file);
+                                      if (os != null) {
+                                          os.write(fileBytes);
+                                          os.close();
+                                          Toast.makeText(MainActivity.this, "File saved to Downloads folder!", Toast.LENGTH_LONG).show();
+                                          showNotification("Download Completed", fileName + " saved to Downloads.");
+                                      }
+                                  }
+                              } catch (Exception ex) {
+                                  ex.printStackTrace();
+                                  Toast.makeText(MainActivity.this, "Error saving file: " + ex.getMessage(), Toast.LENGTH_LONG).show();
+                              }
+                          }
+                      });
+                  } catch (final Exception e) {
+                      e.printStackTrace();
+                      runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              Toast.makeText(MainActivity.this, "Decoder Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                          }
+                      });
+                  }
+              }
+
+              public void startNativeDownload(final String urlString, final String fileName) {
+                  new Thread(new Runnable() {
+                      @Override
+                      public void run() {
+                          Uri uri = null;
+                          java.io.InputStream input = null;
+                          java.io.OutputStream output = null;
+                          java.net.HttpURLConnection connection = null;
+                          final int notificationId = 1001;
+                          
+                          try {
+                              showProgressNotification("Download Started", fileName, 0, 100, true, notificationId);
+                              
+                              java.net.URL url = new java.net.URL(urlString);
+                              connection = (java.net.HttpURLConnection) url.openConnection();
+                              connection.connect();
+                              
+                              if (connection.getResponseCode() != java.net.HttpURLConnection.HTTP_OK) {
+                                  throw new Exception("Server returned HTTP " + connection.getResponseCode());
+                              }
+                              
+                              int fileLength = connection.getContentLength();
+                              input = connection.getInputStream();
+                              
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                  ContentValues values = new ContentValues();
+                                  values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                                  values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                                  uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                                  if (uri == null) throw new Exception("Failed to insert media store record");
+                                  output = getContentResolver().openOutputStream(uri);
+                              } else {
+                                  java.io.File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                                  java.io.File file = new java.io.File(downloadDir, fileName);
+                                  output = new java.io.FileOutputStream(file);
+                              }
+                              
+                              byte[] data = new byte[4096];
+                              long total = 0;
+                              int count;
+                              int lastProgress = 0;
+                              
+                              while ((count = input.read(data)) != -1) {
+                                  total += count;
+                                  if (fileLength > 0) {
+                                      int progress = (int) (total * 100 / fileLength);
+                                      if (progress - lastProgress >= 5 || progress == 100) {
+                                          lastProgress = progress;
+                                          showProgressNotification("Downloading", fileName, progress, 100, false, notificationId);
+                                      }
+                                  }
+                                  output.write(data, 0, count);
+                              }
+                              
+                              showNotification("Download Completed", fileName + " saved successfully.");
+                              runOnUiThread(new Runnable() {
+                                  @Override
+                                  public void run() {
+                                      Toast.makeText(MainActivity.this, "Download Complete: " + fileName, Toast.LENGTH_SHORT).show();
+                                  }
+                              });
+                              
+                          } catch (final Exception e) {
+                              e.printStackTrace();
+                              showNotification("Download Failed", fileName + " failed: " + e.getMessage());
+                              runOnUiThread(new Runnable() {
+                                  @Override
+                                  public void run() {
+                                      Toast.makeText(MainActivity.this, "Download Error: " + e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
+                                  }
+                              });
+                          } finally {
+                              try {
+                                  if (output != null) output.close();
+                                  if (input != null) input.close();
+                              } catch (java.io.IOException ignored) {}
+                              if (connection != null) connection.disconnect();
+                          }
+                      }
+                  }).start();
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == FILECHOOSER_RESULTCODE) {
+                      if (mUploadMessage == null) return;
+                      Uri[] results = null;
+                      if (resultCode == Activity.RESULT_OK) {
+                          if (data != null) {
+                              String dataString = data.getDataString();
+                              ClipData clipData = data.getClipData();
+                              if (clipData != null) {
+                                  results = new Uri[clipData.getItemCount()];
+                                  for (int i = 0; i < clipData.getItemCount(); i++) {
+                                      ClipData.Item item = clipData.getItemAt(i);
+                                      results[i] = item.getUri();
+                                  }
+                              }
+                              if (dataString != null) {
+                                  results = new Uri[]{Uri.parse(dataString)};
+                              }
+                          }
+                      }
+                      mUploadMessage.onReceiveValue(results);
+                      mUploadMessage = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
+                      @Override
+                      public void onReceiveValue(String value) {
+                          if (value == null || value.equals("\"default\"") || value.equals("null") || value.equals("false")) {
+                              if (mWebView.canGoBack()) {
+                                  mWebView.goBack();
+                              } else {
+                                  if (__DOUBLE_BACK_EXIT__) {
+                                      if (doubleBackToExitPressedOnce) {
+                                          finish();
+                                          return;
+                                      }
+                                      doubleBackToExitPressedOnce = true;
+                                      Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
+                                      new Handler().postDelayed(new Runnable() {
+                                          @Override
+                                          public void run() {
+                                              doubleBackToExitPressedOnce = false;
+                                          }
+                                      }, 2000);
+                                  } else {
+                                      finish();
+                                  }
+                              }
+                          }
+                      }
+                  });
+              }
+
+              private void handleNotificationAction(Intent intent) {
+                  if (intent != null && intent.hasExtra("notification_action")) {
+                      final String actionCode = intent.getStringExtra("notification_action");
+                      triggerWebAction(actionCode);
+                  }
+              }
+
+              private void updateMediaSessionState(String trackName, double currentTime, double duration, boolean isPlaying) {
+                  Intent intent = new Intent(this, ForegroundService.class);
+                  intent.setAction("UPDATE_PROGRESS");
+                  intent.putExtra("task_type", "media");
+                  intent.putExtra("trackName", trackName);
+                  intent.putExtra("currentTime", (long)(currentTime * 1000));
+                  intent.putExtra("duration", (long)(duration * 1000));
+                  intent.putExtra("isPlaying", isPlaying);
+                  startService(intent);
+              }
+
+              public void triggerWebAction(final String action) {
+                  runOnUiThread(new Runnable() {
+                      @Override
+                      public void run() {
+                          if (mWebView != null) {
+                              if ("PREV".equals(action)) {
+                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('PREV_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex - 1 + items.length) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=\\"playTrack\\"]'); if(playBtn) playBtn.click(); } })()");
+                              } else if ("PLAY_PAUSE".equals(action) || "TOGGLE_PLAY_ACTION".equals(action)) {
+                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerPlayPauseBtn'); if(btn) btn.click();");
+                              } else if ("NEXT".equals(action)) {
+                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('NEXT_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex + 1) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=\\"playTrack\\"]'); if(playBtn) playBtn.click(); } })()");
+                              } else if ("STOP".equals(action) || "STOP_ACTION".equals(action)) {
+                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerStopBtn'); if(btn) btn.click();");
+                              } else if ("REWIND".equals(action)) {
+                                  mWebView.loadUrl("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) audio.currentTime = Math.max(0, audio.currentTime - 10); })()");
+                              } else if ("FAST_FORWARD".equals(action)) {
+                                  mWebView.loadUrl("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); })()");
+                              }
+                          }
+                      }
+                  });
+              }
+
+              public static class WebAppInterface {
+                  private MainActivity mContext;
+
+                  public WebAppInterface(MainActivity context) {
+                      this.mContext = context;
+                  }
+
+                  @JavascriptInterface
+                  public void speak(String text) {
+                      if (mContext.mTTS != null) {
+                          mContext.mTTS.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID");
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void stopTTS() {
+                      if (mContext.mTTS != null) {
+                          mContext.mTTS.stop();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void startSpeechRecognition() {
+                      mContext.runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              if (mContext.mSpeechRecognizer == null) {
+                                  mContext.mSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(mContext);
+                                  mContext.mSpeechRecognizer.setRecognitionListener(new RecognitionListener() {
+                                      @Override
+                                      public void onReadyForSpeech(Bundle params) {}
+                                      @Override
+                                      public void onBeginningOfSpeech() {}
+                                      @Override
+                                      public void onRmsChanged(float rmsdB) {}
+                                      @Override
+                                      public void onBufferReceived(byte[] buffer) {}
+                                      @Override
+                                      public void onEndOfSpeech() {}
+                                      @Override
+                                      public void onError(int error) {}
+                                      @Override
+                                      public void onResults(Bundle results) {
+                                          ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                                          if (matches != null && !matches.isEmpty()) {
+                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\'") + "'); }");
+                                          }
+                                      }
+                                      @Override
+                                      public void onPartialResults(Bundle partialResults) {}
+                                      @Override
+                                      public void onEvent(int eventType, Bundle params) {}
+                                  });
+                              }
+                              Intent intent = new Intent(RecognizerIntent.ACTION_RECOGGE_SPEECH);
+                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+                              mContext.mSpeechRecognizer.startListening(intent);
+                          }
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void stopSpeechRecognition() {
+                      mContext.runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              if (mContext.mSpeechRecognizer != null) {
+                                  mContext.mSpeechRecognizer.stopListening();
+                              }
+                          }
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void copyToClipboard(String text) {
+                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
+                      ClipData clip = ClipData.newPlainText("Copied Text", text);
+                      if (clipboard != null) {
+                          clipboard.setPrimaryClip(clip);
+                          Toast.makeText(mContext, "Copied to clipboard!", Toast.LENGTH_SHORT).show();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void showNotification(String title, String message) {
+                      mContext.showNotification(title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void showBigTextNotification(String title, String message, String bigText, String summary) {
+                      mContext.showBigTextNotification(title, message, bigText, summary);
+                  }
+
+                  @JavascriptInterface
+                  public void showBigPictureNotification(String title, String message, String base64Image) {
+                      mContext.showBigPictureNotification(title, message, base64Image);
+                  }
+
+                  @JavascriptInterface
+                  public void showInboxNotification(String title, String message, String linesJsonArray) {
+                      mContext.showInboxNotification(title, message, linesJsonArray);
+                  }
+
+                  @JavascriptInterface
+                  public void showActionNotification(String title, String message, String buttonText, String extraValue) {
+                      mContext.showActionNotification(title, message, buttonText, extraValue);
+                  }
+
+                  @JavascriptInterface
+                  public void showMessagingNotification(String senderName, String messageText, String conversationTitle) {
+                      mContext.showMessagingNotification(senderName, messageText, conversationTitle);
+                  }
+
+                  @JavascriptInterface
+                  public void showFullScreenNotification(String title, String message) {
+                      mContext.showFullScreenNotification(title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void showProgressNotification(String title, String message, int progress, int max, boolean indeterminate, int id) {
+                      mContext.showProgressNotification(title, message, progress, max, indeterminate, id);
+                  }
+
+                  @JavascriptInterface
+                  public void scheduleNotification(String title, String message, int delaySeconds) {
+                      mContext.scheduleNotification(title, message, delaySeconds);
+                  }
+
+                  @JavascriptInterface
+                  public void showSilentNotification(String title, String message) {
+                      mContext.showSilentNotification(title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void showHeadsUpNotification(String title, String message) {
+                      mContext.showHeadsUpNotification(title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void showOngoingNotification(String title, String message, int id) {
+                      mContext.showOngoingNotification(title, message, id);
+                  }
+
+                  @JavascriptInterface
+                  public void showGroupedNotifications(String groupKey, String title1, String text1, String title2, String text2) {
+                      mContext.showGroupedNotifications(groupKey, title1, text1, title2, text2);
+                  }
+
+                  @JavascriptInterface
+                  public void showCustomLayoutNotification(String title, String message) {
+                      mContext.showCustomLayoutNotification(title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void updateBadgeCount(int count) {
+                      mContext.updateBadgeCount(count);
+                  }
+
+                  @JavascriptInterface
+                  public void startMediaNotification(String trackName, String artistName, boolean isPlaying) {
+                      mContext.startMediaNotification(trackName, artistName, isPlaying);
+                  }
+
+                  @JavascriptInterface
+                  public void stopMediaNotification() {
+                      mContext.stopMediaNotification();
+                  }
+
+                  @JavascriptInterface
+                  public void startForegroundTask(String taskType, String title, String message) {
+                      mContext.startForegroundTask(taskType, title, message);
+                  }
+
+                  @JavascriptInterface
+                  public void stopForegroundTask() {
+                      mContext.stopForegroundTask();
+                  }
+
+                  @JavascriptInterface
+                  public void cancelNotification(int id) {
+                      mContext.cancelNotification(id);
+                  }
+
+                  @JavascriptInterface
+                  public void cancelAllNotifications() {
+                      mContext.cancelAllNotifications();
+                  }
+
+                  @JavascriptInterface
+                  public void saveBase64File(String base64Data, String mimeType, String fileName) {
+                      mContext.saveBase64File(base64Data, mimeType, fileName);
+                  }
+
+                  @JavascriptInterface
+                  public void startNativeDownload(String urlString, String fileName) {
+                      mContext.startNativeDownload(urlString, fileName);
+                  }
+
+                  @JavascriptInterface
+                  public void triggerDynamicNotification(String jsonStr) {
+                      try {
+                          org.json.JSONObject json = new org.json.JSONObject(jsonStr);
+                          int id = json.optInt("id", (int) System.currentTimeMillis());
+                          String title = json.optString("title", "App Alert");
+                          String message = json.optString("message", "");
+
+                          if (json.optBoolean("foregroundService", false)) {
+                              mContext.startForegroundTask("background_task", title, message);
+                              return;
+                          }
+
+                          String channelId = json.optString("channelId", "default");
+                          int importance = json.optInt("importance", 3);
+
+                          NotificationCompat.Builder builder;
+                          if (channelId.equals("media")) {
+                              builder = new NotificationCompat.Builder(mContext, "media_channel");
+                          } else if (channelId.equals("silent_ch")) {
+                              builder = new NotificationCompat.Builder(mContext, "silent_channel");
+                          } else if (channelId.equals("critical") || importance == 4) {
+                              builder = new NotificationCompat.Builder(mContext, "high_importance");
+                          } else if (channelId.equals("progress")) {
+                              builder = new NotificationCompat.Builder(mContext, "progress_channel");
+                          } else {
+                              builder = new NotificationCompat.Builder(mContext, "default");
+                          }
+
+                          builder.setSmallIcon(mContext.getApplicationInfo().icon)
+                                  .setContentTitle(title)
+                                  .setContentText(message)
+                                  .setColor(ContextCompat.getColor(mContext, R.color.colorPrimary))
+                                  .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                                  .setAutoCancel(true);
+
+                          if (json.optBoolean("ongoing", false)) {
+                              builder.setOngoing(true);
+                          }
+
+                          if (json.optBoolean("silent", false)) {
+                              builder.setPriority(NotificationCompat.PRIORITY_MIN);
+                          }
+
+                          if (json.optString("type", "").equals("custom")) {
+                              android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(mContext.getPackageName(), R.layout.custom_notification);
+                              remoteViews.setImageViewResource(R.id.custom_icon, mContext.getApplicationInfo().icon);
+                              remoteViews.setTextViewText(R.id.custom_title, title);
+                              remoteViews.setTextViewText(R.id.custom_text, message);
+                              builder.setCustomContentView(remoteViews);
+                          }
+
+                          if (json.has("bigText")) {
+                              builder.setStyle(new NotificationCompat.BigTextStyle().bigText(json.getString("bigText")));
+                          }
+
+                          if (json.has("bigPictureBase64")) {
+                              byte[] decodedString = Base64.decode(json.getString("bigPictureBase64"), Base64.DEFAULT);
+                              android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                              builder.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bitmap));
+                          }
+
+                          if (json.has("inboxLines")) {
+                              org.json.JSONArray lines = json.getJSONArray("inboxLines");
+                              NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
+                              for (int i = 0; i < lines.length(); i++) {
+                                  inboxStyle.addLine(lines.getString(i));
+                              }
+                              builder.setStyle(inboxStyle);
+                          }
+
+                          if (json.has("progress") && json.has("maxProgress")) {
+                              int progress = json.getInt("progress");
+                              int max = json.getInt("maxProgress");
+                              builder.setProgress(max, progress, json.optBoolean("indeterminate", false));
+                          } else if (json.optBoolean("indeterminate", false)) {
+                              builder.setProgress(0, 0, true);
+                          }
+
+                          if (json.has("actions")) {
+                              org.json.JSONArray actions = json.getJSONArray("actions");
+                              for (int i = 0; i < actions.length(); i++) {
+                                  org.json.JSONObject act = actions.getJSONObject(i);
+                                  String actTitle = act.optString("title", "Action");
+                                  String actCode = act.optString("actionCode", "ACTION");
+
+                                  Intent actionIntent = new Intent(mContext, MainActivity.class);
+                                  actionIntent.putExtra("notification_action", actCode);
+                                  actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                  android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, (int)System.currentTimeMillis() + i, actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                                  builder.addAction(android.R.drawable.ic_menu_send, actTitle, pIntent);
+                              }
+                          }
+
+                          if (json.has("delayMs")) {
+                              int delaySeconds = json.optInt("delayMs", 0) / 1000;
+                              mContext.scheduleNotification(title, message, delaySeconds);
+                              return;
+                          }
+
+                          if (json.has("badgeCount")) {
+                              builder.setNumber(json.getInt("badgeCount"));
+                          }
+
+                          if (json.optBoolean("fullScreen", false)) {
+                              Intent fullScreenIntent = new Intent(mContext, MainActivity.class);
+                              android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                              builder.setPriority(NotificationCompat.PRIORITY_MAX)
+                                      .setCategory(NotificationCompat.CATEGORY_CALL)
+                                      .setFullScreenIntent(pIntent, true);
+                          }
+
+                          NotificationManagerCompat manager = NotificationManagerCompat.from(mContext);
+                          manager.notify(id, builder.build());
+
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void updatePlaybackNotification(String trackName, boolean isPlaying) {
+                      if (trackName == null || trackName.isEmpty()) {
+                          mContext.stopMediaNotification();
+                      } else {
+                          mContext.startMediaNotification(trackName, "Playing Track", isPlaying);
+                      }
+                  }
+              }
+
+              // Background Native Clipboard Interface Fallback
+              public static class ClipboardInterface {
+                  private Context mContext;
+                  public ClipboardInterface(Context context) {
+                      this.mContext = context;
+                  }
+
+                  @JavascriptInterface
+                  public void copyToClipboard(String text) {
+                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
+                      ClipData clip = ClipData.newPlainText("Copied Text", text);
+                      if (clipboard != null) {
+                          clipboard.setPrimaryClip(clip);
+                      }
+                  }
+              }
+
+              public static class NotificationReceiver extends android.content.BroadcastReceiver {
+                  @Override
+                  public void onReceive(android.content.Context context, Intent intent) {
+                      String title = intent.getStringExtra("title");
+                      String message = intent.getStringExtra("message");
+                      if (title == null) title = "Scheduled Reminder";
+                      if (message == null) message = "Time to check your app!";
+
+                      NotificationManager manager = (NotificationManager) context.getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+                      if (manager == null) return;
+
+                      NotificationCompat.Builder builder;
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          builder = new NotificationCompat.Builder(context, "default");
+                      } else {
+                          builder = new NotificationCompat.Builder(context);
+                      }
+
+                      Intent appIntent = new Intent(context, MainActivity.class);
+                      appIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                      android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(context, (int)System.currentTimeMillis(), appIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      builder.setSmallIcon(context.getApplicationInfo().icon)
+                              .setContentTitle(title)
+                              .setContentText(message)
+                              .setColor(ContextCompat.getColor(context, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setAutoCancel(true)
+                              .setContentIntent(pIntent);
+
+                      manager.notify((int) System.currentTimeMillis(), builder.build());
+                  }
+              }
+
+              public static class ForegroundService extends android.app.Service {
+                  private android.support.v4.media.session.MediaSessionCompat mMediaSession;
+
+                  @Override
+                  public void onCreate() {
+                      super.onCreate();
+                      mMediaSession = new android.support.v4.media.session.MediaSessionCompat(this, "MediaPlayback");
+                      mMediaSession.setActive(true);
+                  }
+
+                  @Override
+                  public int onStartCommand(Intent intent, int flags, int startId) {
+                      if (intent == null) return START_NOT_STICKY;
+                      
+                      String action = intent.getAction();
+                      String taskType = intent.getStringExtra("task_type");
+                      if (taskType == null) taskType = "media";
+
+                      if (action != null) {
+                          if ("ACTION_PREV".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("PREV");
+                              }
+                              return START_STICKY;
+                          } else if ("ACTION_TOGGLE_PLAY".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("PLAY_PAUSE");
+                              }
+                              return START_STICKY;
+                          } else if ("ACTION_NEXT".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("NEXT");
+                              }
+                              return START_STICKY;
+                          } else if ("ACTION_REWIND".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("REWIND");
+                              }
+                              return START_STICKY;
+                          } else if ("ACTION_FAST_FORWARD".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("FAST_FORWARD");
+                              }
+                              return START_STICKY;
+                          } else if ("ACTION_STOP".equals(action)) {
+                              if (MainActivity.sInstance != null) {
+                                  MainActivity.sInstance.triggerWebAction("STOP");
+                              }
+                              stopSelf();
+                              return START_NOT_STICKY;
+                          }
+                      }
+
+                      if ("UPDATE_PROGRESS".equals(action) && taskType.equals("media")) {
+                          long currentTime = intent.getLongExtra("currentTime", 0);
+                          long duration = intent.getLongExtra("duration", 0);
+                          boolean isPlaying = intent.getBooleanExtra("isPlaying", true);
+                          String trackName = intent.getStringExtra("trackName");
+                          updateMediaSession(trackName, "Playing Track", isPlaying, currentTime, duration);
+                          return START_STICKY;
+                      }
+
+                      NotificationCompat.Builder builder;
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          builder = new NotificationCompat.Builder(this, "foreground_tasks");
+                      } else {
+                          builder = new NotificationCompat.Builder(this);
+                      }
+
+                      builder.setSmallIcon(getApplicationInfo().icon)
+                              .setOngoing(true)
+                              .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+
+                      Intent notificationIntent = new Intent(this, MainActivity.class);
+                      android.app.PendingIntent pendingIntent = android.app.PendingIntent.getActivity(this, 0, notificationIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                      builder.setContentIntent(pendingIntent);
+
+                      if (taskType.equals("media")) {
+                          String trackName = intent.getStringExtra("trackName");
+                          String artistName = intent.getStringExtra("artistName");
+                          boolean isPlaying = intent.getBooleanExtra("isPlaying", true);
+                          updateMediaSession(trackName, artistName, isPlaying, 0, 0);
+                          return START_STICKY;
+                      } else {
+                          if (taskType.equals("recording")) {
+                              String title = intent.getStringExtra("title");
+                              String message = intent.getStringExtra("message");
+                              builder.setContentTitle(title != null ? title : "Audio Recording Active")
+                                  .setContentText(message != null ? message : "Recording live audio in background...")
+                                  .setSmallIcon(android.R.drawable.presence_video_busy)
+                                  .setCategory(NotificationCompat.CATEGORY_SERVICE);
+                          } else if (taskType.equals("download")) {
+                              String title = intent.getStringExtra("title");
+                              String message = intent.getStringExtra("message");
+                              builder.setContentTitle(title != null ? title : "File Download Service")
+                                  .setContentText(message != null ? message : "Downloading system files...")
+                                  .setSmallIcon(android.R.drawable.stat_sys_download)
+                                  .setCategory(NotificationCompat.DIRECTORY_DOWNLOADS);
+                          } else if (taskType.equals("upload")) {
+                              String title = intent.getStringExtra("title");
+                              String message = intent.getStringExtra("message");
+                              builder.setContentTitle(title != null ? title : "Upload Service Active")
+                                  .setContentText(message != null ? message : "Uploading data package to cloud server...")
+                                  .setSmallIcon(android.R.drawable.stat_sys_upload)
+                                  .setCategory(NotificationCompat.CATEGORY_PROGRESS);
+                          } else if (taskType.equals("background_task")) {
+                              String title = intent.getStringExtra("title");
+                              String message = intent.getStringExtra("message");
+                              builder.setContentTitle(title != null ? title : "Background Task Running")
+                                  .setContentText(message != null ? message : "Processing synchronized database pipelines...")
+                                  .setSmallIcon(android.R.drawable.stat_notify_sync)
+                                  .setCategory(NotificationCompat.CATEGORY_SERVICE);
+                          }
+                          startForeground(2002, builder.build());
+                      }
+
+                      return START_STICKY;
+                  }
+
+                  private android.graphics.Bitmap getAlbumArt(String trackName) {
+                      int size = 256;
+                      android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+                      android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+                      
+                      android.graphics.Paint paint = new android.graphics.Paint();
+                      paint.setAntiAlias(true);
+                      
+                      android.graphics.LinearGradient gradient = new android.graphics.LinearGradient(
+                          0, 0, size, size,
+                          new int[]{0xFF111827, 0xFF1F2937, 0xFF111827},
+                          null,
+                          android.graphics.Shader.TileMode.CLAMP
+                      );
+                      paint.setShader(gradient);
+                      canvas.drawRoundRect(0, 0, size, size, 24, 24, paint);
+                      
+                      paint.setShader(null);
+                      paint.setStyle(android.graphics.Paint.Style.FILL);
+                      paint.setColor(0x0AFFFFFF);
+                      canvas.drawCircle(size / 2, size / 2, 100, paint);
+                      paint.setColor(0x10FFFFFF);
+                      canvas.drawCircle(size / 2, size / 2, 70, paint);
+                      
+                      paint.setColor(0xFF818CF8);
+                      paint.setTextSize(100.0f);
+                      paint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+                      paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+                      
+                      String symbol = "♪";
+                      if (trackName != null && !trackName.isEmpty()) {
+                          symbol = trackName.substring(0, 1).toUpperCase();
+                      }
+                      
+                      android.graphics.Paint.FontMetrics fm = paint.getFontMetrics();
+                      float yOffset = (fm.descent + fm.ascent) / 2;
+                      
+                      paint.setShadowLayer(8f, 0f, 4f, 0xAA000000);
+                      canvas.drawText(symbol, size / 2, (size / 2) - yOffset, paint);
+                      
+                      return bitmap;
+                  }
+
+                  private void updateMediaSession(String trackName, String artistName, boolean isPlaying, long currentTimeMs, long durationMs) {
+                      if (mMediaSession == null) return;
+
+                      android.support.v4.media.MediaMetadataCompat.Builder metadataBuilder = new android.support.v4.media.MediaMetadataCompat.Builder();
+                      metadataBuilder.putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE, trackName != null ? trackName : "Premium Track");
+                      metadataBuilder.putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ARTIST, artistName != null ? artistName : "HopFile Sandbox");
+                      metadataBuilder.putLong(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
+
+                      android.graphics.Bitmap albumArt = getAlbumArt(trackName);
+                      metadataBuilder.putBitmap(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ALBUM_ART, albumArt);
+                      mMediaSession.setMetadata(metadataBuilder.build());
+
+                      android.support.v4.media.session.PlaybackStateCompat.Builder stateBuilder = new android.support.v4.media.session.PlaybackStateCompat.Builder();
+                      stateBuilder.setActions(
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY |
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_PAUSE |
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_STOP |
+                              android.support.v4.media.session.PlaybackStateCompat.ACTION_SEEK_TO
+                      );
+
+                      int state = isPlaying ? android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING : android.support.v4.media.session.PlaybackStateCompat.STATE_PAUSED;
+                      stateBuilder.setState(state, currentTimeMs, 1.0f);
+                      mMediaSession.setPlaybackState(stateBuilder.build());
+
+                      Intent prevIntent = new Intent(this, ForegroundService.class).setAction("ACTION_PREV");
+                      android.app.PendingIntent pPrev = android.app.PendingIntent.getService(this, 10, prevIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent playIntent = new Intent(this, ForegroundService.class).setAction("ACTION_TOGGLE_PLAY");
+                      android.app.PendingIntent pPlay = android.app.PendingIntent.getService(this, 11, playIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent nextIntent = new Intent(this, ForegroundService.class).setAction("ACTION_NEXT");
+                      android.app.PendingIntent pNext = android.app.PendingIntent.getService(this, 12, nextIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent rewindIntent = new Intent(this, ForegroundService.class).setAction("ACTION_REWIND");
+                      android.app.PendingIntent pRewind = android.app.PendingIntent.getService(this, 16, rewindIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent ffIntent = new Intent(this, ForegroundService.class).setAction("ACTION_FAST_FORWARD");
+                      android.app.PendingIntent pFF = android.app.PendingIntent.getService(this, 17, ffIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent stopIntent = new Intent(this, ForegroundService.class).setAction("ACTION_STOP");
+                      android.app.PendingIntent pStop = android.app.PendingIntent.getService(this, 13, stopIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent openIntent = new Intent(this, MainActivity.class);
+                      openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      android.app.PendingIntent pOpen = android.app.PendingIntent.getActivity(this, 0, openIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      Intent tuikIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mrtuik"));
+                      tuikIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                      android.app.PendingIntent pTuik = android.app.PendingIntent.getActivity(this, 15, tuikIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+
+                      android.widget.RemoteViews collapsedViews = new android.widget.RemoteViews(getPackageName(), R.layout.custom_media_collapsed);
+                      android.widget.RemoteViews expandedViews = new android.widget.RemoteViews(getPackageName(), R.layout.custom_media_expanded);
+
+                      collapsedViews.setTextViewText(R.id.media_track_title, trackName != null ? trackName : "Premium Track");
+                      collapsedViews.setImageViewBitmap(R.id.media_album_art, albumArt);
+
+                      expandedViews.setTextViewText(R.id.media_track_title_large, trackName != null ? trackName : "Premium Track");
+                      expandedViews.setImageViewBitmap(R.id.media_album_art_large, albumArt);
+
+                      int playPauseIcon = isPlaying ? R.drawable.ic_notification_pause : R.drawable.ic_notification_play;
+                      collapsedViews.setImageViewResource(R.id.btn_play_pause, playPauseIcon);
+                      expandedViews.setImageViewResource(R.id.btn_play_pause_large, playPauseIcon);
+
+                      int progressPercent = 0;
+                      if (durationMs > 0) {
+                          progressPercent = (int) (currentTimeMs * 100 / durationMs);
+                      }
+                      collapsedViews.setProgressBar(R.id.custom_media_progress, 100, progressPercent, false);
+                      expandedViews.setProgressBar(R.id.custom_media_progress_large, 100, progressPercent, false);
+                      
+                      long currentSecs = currentTimeMs / 1000;
+                      long totalSecs = durationMs / 1000;
+                      
+                      long currentMins = currentSecs / 60;
+                      long currentLeftSecs = currentSecs % 60;
+                      long totalMins = totalSecs / 60;
+                      long totalLeftSecs = totalSecs % 60;
+                      
+                      String currentTimeStr = currentMins + ":" + (currentLeftSecs < 10 ? "0" : "") + currentLeftSecs;
+                      String totalTimeStr = totalMins + ":" + (totalLeftSecs < 10 ? "0" : "") + totalLeftSecs;
+                      
+                      expandedViews.setTextViewText(R.id.txt_current_time, currentTimeStr);
+                      expandedViews.setTextViewText(R.id.txt_total_duration, totalTimeStr);
+
+                      collapsedViews.setOnClickPendingIntent(R.id.btn_prev, pPrev);
+                      collapsedViews.setOnClickPendingIntent(R.id.btn_play_pause, pPlay);
+                      collapsedViews.setOnClickPendingIntent(R.id.btn_next, pNext);
+                      collapsedViews.setOnClickPendingIntent(R.id.tuik_badge, pTuik);
+                      collapsedViews.setOnClickPendingIntent(R.id.notification_root, pOpen);
+
+                      expandedViews.setOnClickPendingIntent(R.id.btn_prev_large, pPrev);
+                      expandedViews.setOnClickPendingIntent(R.id.btn_rewind_large, pRewind);
+                      expandedViews.setOnClickPendingIntent(R.id.btn_play_pause_large, pPlay);
+                      expandedViews.setOnClickPendingIntent(R.id.btn_fast_forward_large, pFF);
+                      expandedViews.setOnClickPendingIntent(R.id.btn_next_large, pNext);
+                      expandedViews.setOnClickPendingIntent(R.id.btn_stop, pStop);
+                      expandedViews.setOnClickPendingIntent(R.id.tuik_badge_large, pTuik);
+                      expandedViews.setOnClickPendingIntent(R.id.notification_root_large, pOpen);
+
+                      NotificationCompat.Builder builder;
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          builder = new NotificationCompat.Builder(this, "media_channel");
+                      } else {
+                          builder = new NotificationCompat.Builder(this);
+                      }
+
+                      builder.setSmallIcon(getApplicationInfo().icon)
+                              .setCustomContentView(collapsedViews)
+                              .setCustomBigContentView(expandedViews)
+                              .setOngoing(isPlaying)
+                              .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setCategory(NotificationCompat.CATEGORY_TRANSPORT);
+
+                      if (isPlaying) {
+                          startForeground(2002, builder.build());
+                      } else {
+                          stopForeground(false);
+                          NotificationManagerCompat.from(this).notify(2002, builder.build());
+                      }
+                  }
+
+                  @Override
+                  public void onDestroy() {
+                      if (mMediaSession != null) {
+                          mMediaSession.release();
+                      }
+                      super.onDestroy();
+                  }
+
+                  @Override
+                  public android.os.IBinder onBind(Intent intent) {
+                      return null;
+                  }
+              }
+          }
+          """
+          
+          main_activity_java = main_activity_java_template.replace("__SWIPE_IMPORT__", swipe_import_block)
+          main_activity_java = main_activity_java.replace("__SWIPE_DECLARATION__", swipe_declaration_block)
+          main_activity_java = main_activity_java.replace("__PROGRESS_DECLARATION__", progress_declaration_block)
+          main_activity_java = main_activity_java.replace("__PROGRESS_INIT__", progress_init_block)
+          main_activity_java = main_activity_java.replace("__LOCAL_STORAGE__", local_storage_block)
+          main_activity_java = main_activity_java.replace("__ZOOM__", zoom_block)
+          main_activity_java = main_activity_java.replace("__AUTOPLAY_UA__", autoplay_ua_block)
+          main_activity_java = main_activity_java.replace("__SWIPE_REFRESH_CODE__", swipe_refresh_code_block)
+          main_activity_java = main_activity_java.replace("__LONG_PRESS__", long_press_code_block)
+          main_activity_java = main_activity_java.replace("__DOWNLOAD_MANAGER__", download_manager_block)
+          main_activity_java = main_activity_java.replace("__SWIPE_REFRESH_STOP_CODE__", swipe_refresh_stop_code_block)
+          main_activity_java = main_activity_java.replace("__PROGRESS_UPDATE__", progress_update_block)
+          main_activity_java = main_activity_java.replace("__PERMISSION_MANAGER__", permission_manager_block)
+          main_activity_java = main_activity_java.replace("__HOMEPAGE__", homepage)
+
+          # Advanced features template placeholders mapping
+          main_activity_java = main_activity_java.replace("__KEEP_SCREEN_ON__", "true" if keep_screen_on_enabled else "false")
+          main_activity_java = main_activity_java.replace("__SECURE_WINDOW__", "true" if secure_window_enabled else "false")
+          main_activity_java = main_activity_java.replace("__GEOLOCATION_ENABLED__", "true" if location_enabled else "false")
+          main_activity_java = main_activity_java.replace("__EXTERNAL_BROWSER_ENABLED__", "true" if external_browser_enabled else "false")
+          main_activity_java = main_activity_java.replace("__FILE_TRANSFER_ENABLED__", "true" if file_transfer_enabled else "false")
+          main_activity_java = main_activity_java.replace("__CLIPBOARD_ENABLED__", "true" if clipboard_enabled else "false")
+          main_activity_java = main_activity_java.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
+
+          # Biometrics implementation
+          if biometric_enabled:
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_IMPORTS__", "import androidx.biometric.BiometricPrompt;\\nimport androidx.biometric.BiometricManager;")
+              biometric_logic = """
+                  BiometricManager biometricManager = BiometricManager.from(this);
+                  switch (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+                      case BiometricManager.BIOMETRIC_SUCCESS:
+                          java.util.concurrent.Executor executor = ContextCompat.getMainExecutor(this);
+                          BiometricPrompt biometricPrompt = new BiometricPrompt(MainActivity.this,
+                                  executor, new BiometricPrompt.AuthenticationCallback() {
+                              @Override
+                              public void onAuthenticationError(int errorCode, CharSequence errString) {
+                                  super.onAuthenticationError(errorCode, errString);
+                                  Toast.makeText(getApplicationContext(), "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                                  finish();
+                              }
+
+                              @Override
+                              public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                                  super.onAuthenticationSucceeded(result);
+                                  Toast.makeText(getApplicationContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show();
+                              }
+
+                              @Override
+                              public void onAuthenticationFailed() {
+                                  super.onAuthenticationFailed();
+                                  Toast.makeText(getApplicationContext(), "Authentication failed", Toast.LENGTH_SHORT).show();
+                              }
+                          });
+
+                          BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
+                                  .setTitle("Biometric Login")
+                                  .setSubtitle("Log in using your credentials")
+                                  .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                                  .build();
+
+                          biometricPrompt.authenticate(promptInfo);
+                          break;
+                      default:
+                          break;
+                  }
+              """
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_INIT_LOGIC__", biometric_logic.strip())
+          else:
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_IMPORTS__", "")
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_INIT_LOGIC__", "")
+
+          # Insert dynamic PHP Server conditions in Java
+          php_support_val = "true" if php_support else "false"
+          main_activity_java = main_activity_java.replace("__PHP_SUPPORT_ENABLED__", php_support_val)
+          main_activity_java = main_activity_java.replace("__PHP_PORT__", str(php_port))
+
+          with open("app/src/main/java/com/example/runner/MainActivity.java", "w") as f:
+              f.write(main_activity_java.strip())
+
+          # Process Launcher Icons
+          icon_src = "app/src/main/assets/_app_icon.png"
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192
+          }
+          if os.path.exists(icon_src):
               try:
                   with Image.open(icon_src) as img:
                       for folder, size in sizes.items():
-                          dest_dir = f"android/app/src/main/res/{folder}"
+                          dest_dir = f"app/src/main/res/{folder}"
                           os.makedirs(dest_dir, exist_ok=True)
                           resized_img = img.resize((size, size), Image.Resampling.LANCZOS)
                           resized_img.save(f"{dest_dir}/ic_launcher.png")
-                          resized_img.save(f"{dest_dir}/ic_launcher_round.png")
               except Exception as e:
-                  print(f"Error compiling launcher icon structures: {e}")
+                  print(f"Error resizing launcher icon: {e}")
+          else:
+              # Pull or fallback generate generic icons for all folders
+              for folder, size in sizes.items():
+                  dest_dir = f"app/src/main/res/{folder}"
+                  os.makedirs(dest_dir, exist_ok=True)
+                  try:
+                      url = "https://raw.githubusercontent.com/android/platform_development/master/apps/Development/res/mipmap-xxhdpi/ic_launcher_android.png"
+                      urllib.request.urlretrieve(url, f"{dest_dir}/ic_launcher.png")
+                  except Exception as e:
+                      print(f"Failed to fetch default icon for {folder}: {e}. Generating localized color block instead...")
+                      try:
+                          fallback_img = Image.new('RGBA', (size, size), color='#4F46E5')
+                          fallback_img.save(f"{dest_dir}/ic_launcher.png")
+                      except Exception as gen_err:
+                          print(f"Failed to write icon: {gen_err}")
 
-          # 2. Programmatically edit AndroidManifest.xml safely to allow local cleartext requests and all native features
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(manifest_path):
-              with open(manifest_path, "r", encoding="utf-8") as f:
-                  content = f.read()
-
-              # Define native feature permissions to merge
-              permissions = [
-                  '<uses-permission android:name="android.permission.INTERNET" />',
-                  '<uses-permission android:name="android.permission.CAMERA" />',
-                  '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
-                  '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
-                  '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
-                  '<uses-permission android:name="android.permission.WAKE_LOCK" />',
-                  '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />'
-              ]
-
-              # Merge permissions before <application block
-              perm_string = "\n    ".join(permissions)
-              if "<application" in content:
-                  content = content.replace("<application", perm_string + "\n    <application")
-
-              # Extract AdMob App ID or assign sample testing App ID to prevent runtime compilation crash
-              admob_id = config.get("admobAppId", "ca-app-pub-3940256099942544~3347511713") or "ca-app-pub-3940256099942544~3347511713"
-              admob_meta = f'<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_id}" />'
-              
-              # Enable cleartext traffic allowances for local HTTP mock backend queries (PHP servers fallback logic)
-              if "android:usesCleartextTraffic=" not in content:
-                  content = content.replace("<application", '<application android:usesCleartextTraffic="true"')
-                  
-              if "</application>" in content:
-                  content = content.replace("</application>", f"    {admob_meta}\n    </application>")
-
-              with open(manifest_path, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-          # 3. Apply color profiles to resources
-          colors_xml_path = "android/app/src/main/res/values/colors.xml"
-          if os.path.exists(colors_xml_path):
-              with open(colors_xml_path, "r") as f:
-                  colors_content = f.read()
-              if "colorPrimary" in colors_content:
-                  colors_content = colors_content.replace("#4F46E5", theme_color)
-              with open(colors_xml_path, "w") as f:
-                  f.write(colors_content)
+          # Process Splash Screen Logo
+          splash_src = "app/src/main/assets/_splash_icon.png"
+          if os.path.exists(splash_src) and splash_screen_enabled:
+              os.makedirs("app/src/main/res/drawable", exist_ok=True)
+              try:
+                  with Image.open(splash_src) as img:
+                      resized_img = img.resize((512, 512), Image.Resampling.LANCZOS)
+                      resized_img.save("app/src/main/res/drawable/splash_icon.png")
+              except Exception as e:
+                  print(f"Error resizing splash icon: {e}")
           EOF
-          python3 configure_capacitor.py
+          python3 build_assets.py
 
-      - name: Sync Web Code into Capacitor Android
+      - name: Write strings.xml resource values
         run: |
-          npx cap sync android
+          cat << EOF > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">${APP_NAME}</string>
+          </resources>
+          EOF
 
-      - name: Compile Debug APK
-        working-directory: android
+      - name: Setup Gradle Wrapper
         run: |
-          ./gradlew assembleDebug
+          gradle wrapper --gradle-version 8.0.2
 
-      - name: Map Output Structure to Legacy Paths
+      - name: Developer Mode Compilation Log Summary
         run: |
-          echo "Copying the compiled APK to the legacy path structure so HopFile frontend can retrieve it..."
-          mkdir -p app/build/outputs/apk/debug/
-          cp android/app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug.apk
+          echo "### Generated Android Manifest Settings" >> $GITHUB_STEP_SUMMARY
+          echo '```xml' >> $GITHUB_STEP_SUMMARY
+          cat app/src/main/AndroidManifest.xml >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### Compiled MainActivity.java Source" >> $GITHUB_STEP_SUMMARY
+          echo '```java' >> $GITHUB_STEP_SUMMARY
+          cat app/src/main/java/com/example/runner/MainActivity.java >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run APK Compile Gradle Task
+        run: |
+          ./gradlew :app:assembleDebug
 
       - name: Package APK into ZIP and Rename
         run: |
@@ -233,7 +2806,7 @@ jobs:
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
           ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
           
-          # Create custom credits.txt file
+          # Create custom credits
           cat << 'EOF' > app/build/outputs/apk/debug/credits.txt
           ==================================================
           HopFile Editor - Release Staging Package
