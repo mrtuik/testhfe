@@ -132,7 +132,7 @@ jobs:
               with open(config_path, "r") as f:
                   config = json.load(f)
 
-          # Safe Boolean Parsing Helper to avoid "false" string evaluation bugs
+          # Safe Boolean Parsing Helper to avoid any "false" string evaluation bugs
           def get_bool(val, default=False):
               if val is None:
                   return default
@@ -153,24 +153,21 @@ jobs:
           splash_bg_color = config.get("splashBgColor", "#111827")
           splash_duration = int(config.get("splashDuration", 2000))
 
-          # Dynamic Feature Toggles with Safe Parsing
+          # Dynamic Feature Toggles with Safe Parsing (Defaulting strictly to False/Off)
           database_enabled = get_bool(config.get("databaseEnabled"), True)
           camera_enabled = get_bool(config.get("cameraEnabled"), False)
           notifications_enabled = get_bool(config.get("notificationsEnabled"), True)
           local_storage_enabled = get_bool(config.get("localStorageEnabled"), True)
           
-          # Force set to False (keeps the device's system status bar visible at the top)
+          # Force Fullscreen and Progress bar to False
           fullscreen_enabled = get_bool(config.get("fullscreenEnabled"), False)
+          loading_ui_enabled = get_bool(config.get("loadingUIEnabled"), False)
           
           autoplay_enabled = get_bool(config.get("autoplayEnabled"), True)
           microphone_enabled = get_bool(config.get("microphoneEnabled"), False)
           hide_title_bar = get_bool(config.get("hideTitleBar"), True)
           swipe_refresh_enabled = get_bool(config.get("swipeRefreshEnabled"), True)
           long_press_enabled = get_bool(config.get("longPressEnabled"), True)
-          
-          # Force set to False (completely hides the top loading progress bar)
-          loading_ui_enabled = get_bool(config.get("loadingUIEnabled"), False)
-          
           pc_mode_enabled = get_bool(config.get("pcModeEnabled"), False)
           zoom_enabled = get_bool(config.get("zoomEnabled"), True)
           has_custom_splash = get_bool(config.get("hasCustomSplash"), False)
@@ -186,7 +183,7 @@ jobs:
           file_transfer_enabled = get_bool(config.get("fileTransferEnabled"), True)
           biometric_enabled = get_bool(config.get("biometricEnabled"), False)
           
-          # Safe extraction of Splash screen toggle (Defaults to False)
+          # Safe extraction of Splash screen toggle (Defaults strictly to False)
           splash_screen_enabled = get_bool(config.get("splashScreenEnabled"), False)
 
           # Auto-detect if there are actually any PHP files inside assets
@@ -2417,7 +2414,7 @@ jobs:
 
                       NotificationCompat.Builder builder;
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          builder = new NotificationCompat.Builder(this, "media_channel");
+                          builder = new NotificationCompat.Builder(this, "foreground_tasks");
                       } else {
                           builder = new NotificationCompat.Builder(this);
                       }
