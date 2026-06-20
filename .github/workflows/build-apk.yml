@@ -25,16 +25,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Extract User Web Payload
         run: |
@@ -51,12 +48,10 @@ jobs:
       - name: Initialize Capacitor 6 Project
         run: |
           npm init -y
-          # Lock versions to explicitly use Capacitor 6
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --save
           
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
           
-          # Force remove typescript/js config to avoid conflicts with our JSON config
           rm -f capacitor.config.ts capacitor.config.js
           
           cat << 'EOF' > capacitor.config.json
@@ -73,12 +68,10 @@ jobs:
           EOF
           sed -i "s/___PACKAGE_ID___/${PACKAGE_ID}/g" capacitor.config.json
           sed -i "s/___APP_NAME___/${APP_NAME}/g" capacitor.config.json
-          
-          npx cap add android
 
       - name: Generate App Icons
         run: |
-          npm install -g @capacitor/assets@3 --legacy-peer-deps
+          npm install -g @capacitor/assets@3
           mkdir -p assets
           if [ -f "www/_app_icon.png" ]; then
             cp www/_app_icon.png assets/icon.png
@@ -92,13 +85,13 @@ jobs:
             npx capacitor-assets generate --android || true
           fi
 
-      - name: Install Native Plugins
+      - name: Install Native Plugins & Add Android
         run: |
-          # Install Official Capacitor 6 plugins
-          npm install @capacitor/splash-screen@6 @capacitor/app@6 @capacitor/haptics@6 @capacitor/keyboard@6 @capacitor/status-bar@6 --legacy-peer-deps
-          # Install Community Plugins
-          npm install @capacitor-community/text-to-speech @capacitor-community/admob --legacy-peer-deps
+          # Only installing perfectly stable standard plugins. TTS is handled natively by Android Webview.
+          npm install @capacitor/splash-screen@6 @capacitor/app@6 @capacitor/haptics@6 @capacitor/keyboard@6 @capacitor/status-bar@6
+          npm install @capacitor-community/admob
           
+          npx cap add android
           npx cap sync android
 
       - name: Configure Android Manifest & Permissions
@@ -153,26 +146,25 @@ jobs:
               fi
           fi
 
-      - name: Modify MainActivity for PHP Server
+      - name: Safely Overwrite MainActivity for PHP Server
         run: |
           MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
           if [ -n "$MAIN_ACTIVITY_PATH" ]; then
-            cat << 'EOF' > modify_activity.py
-          import sys, re
-          file_path = sys.argv[1]
-          with open(file_path, 'r') as f:
-              code = f.read()
-          
-          if 'import android.os.Bundle;' not in code:
-              code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport java.io.File;\n')
-          
-          php_logic = """
+          # Using direct cat EOF to prevent any regex syntax errors
+          cat << EOF > "$MAIN_ACTIVITY_PATH"
+          package ${PACKAGE_ID};
+
+          import android.os.Bundle;
+          import java.io.File;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   startPhpServer();
               }
-          
+
               private void startPhpServer() {
                   new Thread(() -> {
                       try {
@@ -189,22 +181,16 @@ jobs:
                       }
                   }).start();
               }
-          """
-          
-          if 'startPhpServer()' not in code:
-              code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\n' + php_logic + '\n}', code, flags=re.DOTALL)
-              with open(file_path, 'w') as f:
-                  f.write(code)
+          }
           EOF
-            python3 modify_activity.py "$MAIN_ACTIVITY_PATH"
           fi
 
       - name: Build Android APK
         run: |
           cd android
-          # Fixed the Gradle Download Collision Issue by running Clean and Disabling Parallel
-          ./gradlew clean
-          ./gradlew assembleDebug --no-daemon --no-parallel --stacktrace
+          # Wiping out corrupted caches to ensure a completely fresh build
+          rm -rf ~/.gradle/caches/
+          ./gradlew assembleDebug --no-daemon --no-build-cache
 
       - name: Package APK into ZIP
         run: |
