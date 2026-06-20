@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -51,7 +51,7 @@ jobs:
       - name: Initialize Capacitor 6 Project
         run: |
           npm init -y
-          # Lock versions to explicitly use Capacitor 6 to prevent Gradle incompatibility
+          # Lock versions to explicitly use Capacitor 6
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
           
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
@@ -202,7 +202,9 @@ jobs:
       - name: Build Android APK
         run: |
           cd android
-          ./gradlew assembleDebug
+          # Fixed the Gradle Download Collision Issue by running Clean and Disabling Parallel
+          ./gradlew clean
+          ./gradlew assembleDebug --no-daemon --no-parallel --stacktrace
 
       - name: Package APK into ZIP
         run: |
@@ -212,7 +214,6 @@ jobs:
           
           cd android/app/build/outputs/apk/debug/
           mv app-debug.apk $APK_NAME
-          # Fixed path traversal so ZIP is accurately placed at repo root for the release
           zip -r ../../../../../$ZIP_NAME $APK_NAME
 
       - name: Generate Unique Release Tag
