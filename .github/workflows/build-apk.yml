@@ -1826,8 +1826,8 @@ jobs:
                   androidx.appcompat.app.AlertDialog builder_dialog = builder.create();
                   builder_dialog.show();
                   int colorPrimary = ContextCompat.getColor(MainActivity.this, R.color.colorPrimary);
-                  builder_dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(colorPrimary);
-                  builder_dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(colorPrimary);
+                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setTextColor(colorPrimary);
+                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).setTextColor(colorPrimary);
               }
 
               private void handleNotificationAction(Intent intent) {
@@ -1919,7 +1919,7 @@ jobs:
                                   });
                               }
                               Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.EXTRA_LANGUAGE_MODEL_FREE_FORM);
+                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
                               intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
                               mContext.mSpeechRecognizer.startListening(intent);
                           }
@@ -2034,13 +2034,13 @@ jobs:
                   }
 
                   @JavascriptInterface
-                  public void startForegroundTask(String taskType, String title, String message) {
-                      mContext.startForegroundTask(taskType, title, message);
+                  public void startForegroundTask(String trackName, String artistName, boolean isPlaying) {
+                      mContext.startMediaNotification(trackName, artistName, isPlaying);
                   }
 
                   @JavascriptInterface
                   public void stopForegroundTask() {
-                      mContext.stopForegroundTask();
+                      mContext.stopMediaNotification();
                   }
 
                   @JavascriptInterface
