@@ -79,8 +79,17 @@ jobs:
           echo "Installing Capacitor core frameworks..."
           npm install
           
-          echo "Initializing Capacitor project mapping dynamically..."
-          npx cap init "${APP_NAME}" "${PACKAGE_ID}" --web-dir=www --noprompt
+          echo "Creating capacitor.config.json directly to bypass interactive prompts..."
+          cat << EOF > capacitor.config.json
+          {
+            "appId": "${PACKAGE_ID}",
+            "appName": "${APP_NAME}",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
           
           echo "Injecting Android platform wrappers..."
           npx cap add android
@@ -108,7 +117,7 @@ jobs:
           version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
           theme_color = config.get("themeColor", "#4F46E5")
 
-          # 1. Automatically scale and inject Launcher App Icon jodi custom logo thake
+          # 1. Automatically scale and inject Launcher App Icon if custom logo is found
           icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
               print("Custom launcher icon found! Resizing into mipmaps...")
