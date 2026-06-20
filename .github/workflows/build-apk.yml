@@ -443,8 +443,7 @@ jobs:
               f.write(custom_media_collapsed_xml.strip())
 
           # Generate custom_media_expanded.xml
-          custom_media_expanded_xml = """xml
-          <?xml version="1.0" encoding="utf-8"?>
+          custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
               android:layout_width="match_parent"
@@ -1503,7 +1502,7 @@ jobs:
               public void showOngoingNotification(String title, String message, int id) {
                   NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
                           .setSmallIcon(getApplicationInfo().icon)
-                          .setContentTitle(title)
+                          .setContentTitle("App Alert")
                           .setContentText(message)
                           .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
                           .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -1575,8 +1574,7 @@ jobs:
                           .setContentText("Active Badge count set to " + count)
                           .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
                           .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                          .setNumber(count)
-                          .setAutoCancel(true);
+                          .setNumber(count);
 
                   NotificationManagerCompat manager = NotificationManagerCompat.from(this);
                   manager.notify(9999, builder.build());
