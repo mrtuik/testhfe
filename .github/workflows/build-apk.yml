@@ -34,7 +34,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.0.2'
 
       - name: Initialize Android Web-View Wrapper Template
         run: |
@@ -175,7 +175,7 @@ jobs:
           except Exception:
               php_port = 8080
 
-          # Advanced properties missing in previous build script version
+          # Missing configuration elements read from app_config.json
           file_transfer_enabled = config.get("fileTransferEnabled", True)
           location_enabled = config.get("locationEnabled", True)
           biometric_enabled = config.get("biometricEnabled", False)
@@ -328,7 +328,7 @@ jobs:
           with open("app/src/main/res/layout/custom_notification.xml", "w") as f:
               f.write(custom_notification_xml.strip())
 
-          # Generate Drawables and Theme-Aware Vector Icons
+          # Generate Drawables and Theme-Aware Vector Icons (Explicit hex colors used to ensure compile-safeness)
           os.makedirs("app/src/main/res/drawable", exist_ok=True)
           
           def write_vector(filename, path_data, viewport="24"):
@@ -337,7 +337,7 @@ jobs:
                   android:height="24dp"
                   android:viewportWidth="{viewport}"
                   android:viewportHeight="{viewport}">
-                  <path android:fillColor="?android:attr/textColorPrimary" android:pathData="{path_data}"/>
+                  <path android:fillColor="#F8FAFC" android:pathData="{path_data}"/>
               </vector>"""
               with open(f"app/src/main/res/drawable/{filename}.xml", "w") as f_out:
                   f_out.write(xml.strip())
@@ -966,6 +966,7 @@ jobs:
           }
           """
 
+          # BACKSLASH-FREE COMPARISON APPROACH (immune to Python string unescaping bugs)
           main_activity_java_template = """package com.example.runner;
           import android.Manifest;
           import androidx.appcompat.app.AppCompatActivity;
@@ -1899,7 +1900,7 @@ jobs:
                   mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
                       @Override
                       public void onReceiveValue(String value) {
-                          if (value == null || value.equals("\\\"default\\\"") || value.equals("null") || value.equals("false")) {
+                          if (value == null || value.contains("default") || value.contains("null") || value.contains("false")) {
                               if (mWebView.canGoBack()) {
                                   mWebView.goBack();
                               } else {
