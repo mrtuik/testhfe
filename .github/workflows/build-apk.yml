@@ -31,15 +31,48 @@ jobs:
       - name: Setup Android SDK (Licenses Auto-Accept)
         uses: android-actions/setup-android@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
+
+      - name: Initialize Android Web-View Wrapper Template
+        run: |
+          echo "Initializing lightweight Gradle project structure..."
+          mkdir -p app/src/main/java/com/example/runner
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          
+          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          echo "android.bundle.enableUncompressedNativeLibs=false" >> gradle.properties
+          
+          cat << 'EOF' > settings.gradle
+          rootProject.name = 'WebRunner'
+          include ':app'
+          EOF
+          
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.0.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
 
       - name: Fetch Website Archive and Verify Assets
         run: |
@@ -49,7 +82,6 @@ jobs:
               exit 1
           fi
           
-          # Temporary folder to inspect workspace config
           mkdir -p raw_assets
           unzip -o "${ZIP_NAME}" -d raw_assets/
           
@@ -64,30 +96,25 @@ jobs:
           npm init -y
           npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           
-          # Parse metadata from config
           APP_NAME_CONFIG=$(node -e "console.log(require('./raw_assets/app_config.json').appName || '$APP_NAME')")
           PACKAGE_ID_CONFIG=$(node -e "console.log(require('./raw_assets/app_config.json').packageName || '$PACKAGE_ID')")
           
           echo "Initializing Capacitor with App Name: $APP_NAME_CONFIG, Package ID: $PACKAGE_ID_CONFIG"
           npx cap init "$APP_NAME_CONFIG" "$PACKAGE_ID_CONFIG" --web-dir=www
           
-          # Setup empty public target assets folder
           mkdir -p www
           cp -r raw_assets/* www/
           
-          # Add native Android platform wrapper
           npx cap add android
 
       - name: Fetch and Bundle Native PHP 8.4 Binary for Android ARM64
         run: |
-          # Fetch PHP binary only if PHP Support is enabled in JSON
           PHP_ENABLED=$(node -e "console.log(require('./www/app_config.json').phpSupport !== false)")
           if [ "$PHP_ENABLED" = "true" ]; then
               echo "Downloading PocketMine PHP 8.4 static binary for Android arm64..."
               wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
               tar -xzf php.tar.gz
               
-              # Locate binary and bundle in native libs directory
               PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
               if [ -n "$PHP_BIN_PATH" ]; then
                   mkdir -p android/app/src/main/jniLibs/arm64-v8a
@@ -129,7 +156,7 @@ jobs:
           splash_bg_color = config.get("splashBgColor", "#111827")
           splash_duration = int(config.get("splashDuration", 2000))
 
-          # Dynamic Feature Toggles
+          # Dynamic Feature Toggles with Default Value Configurations [1]
           database_enabled = config.get("databaseEnabled", True)
           camera_enabled = config.get("cameraEnabled", True)
           notifications_enabled = config.get("notificationsEnabled", True)
@@ -145,6 +172,16 @@ jobs:
           zoom_enabled = config.get("zoomEnabled", True)
           has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
+
+          # NEW FIXES: System Configuration variables mapping from config to prevent python process crash [1]
+          location_enabled = config.get("locationEnabled", False)
+          biometric_enabled = config.get("biometricEnabled", False)
+          file_transfer_enabled = config.get("fileTransferEnabled", True)
+          clipboard_enabled = config.get("clipboardEnabled", True)
+          double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
+          keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
+          secure_window_enabled = config.get("secureWindowEnabled", False)
+          external_browser_enabled = config.get("externalBrowserEnabled", True)
 
           # Auto-detect PHP support
           has_php_files = False
@@ -777,6 +814,8 @@ jobs:
                   webSettings.setDatabaseEnabled(true);
                   webSettings.setAllowFileAccess(true);
                   webSettings.setAllowContentAccess(true);
+                  webSettings.setGeolocationEnabled(__GEOLOCATION_ENABLED__);
+                  webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   
                   mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
                   mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
@@ -791,6 +830,7 @@ jobs:
                   });
 
                   createNotificationChannels();
+                  __PERMISSION_MANAGER__
 
                   if (__PHP_SUPPORT__) {
                       copyAssetFolder("", getFilesDir().getAbsolutePath() + "/www");
@@ -1086,12 +1126,51 @@ jobs:
           }
           """
           
+          # Setup Runtime Java Permissions
+          permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              permissions.add("android.permission.POST_NOTIFICATIONS");
+              permissions.add("android.permission.READ_MEDIA_IMAGES");
+              permissions.add("android.permission.READ_MEDIA_AUDIO");
+              permissions.add("android.permission.READ_MEDIA_VIDEO");
+          }
+          """
+          if camera_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\\n'
+          if microphone_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\\n'
+          if local_storage_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\\n'
+          if location_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\\n'
+
+          permission_manager_block += """
+          if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+              ArrayList<String> remaining = new ArrayList<>();
+              for (String p : permissions) {
+                  if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                      remaining.add(p);
+                  }
+              }
+              if (!remaining.isEmpty()) {
+                  requestPermissions(remaining.toArray(new String[0]), 101);
+              }
+          }
+          """
+          
           main_activity = main_activity_java_template.replace("__PACKAGE_ID__", package_id)
           main_activity = main_activity.replace("__PHP_SUPPORT__", "true" if php_support else "false")
           main_activity = main_activity.replace("__PHP_PORT__", str(php_port))
           main_activity = main_activity.replace("__HOMEPAGE__", homepage)
-          main_activity = main_activity.replace("__KEEP_SCREEN_ON__", "true" if config.get("keepScreenOnEnabled", True) else "false")
-          main_activity = main_activity.replace("__SECURE_WINDOW__", "true" if config.get("secureWindowEnabled", False) else "false")
+          main_activity = main_activity.replace("__KEEP_SCREEN_ON__", "true" if keep_screen_on_enabled else "false")
+          main_activity = main_activity.replace("__SECURE_WINDOW__", "true" if secure_window_enabled else "false")
+          main_activity = main_activity.replace("__GEOLOCATION_ENABLED__", "true" if location_enabled else "false")
+          main_activity = main_activity.replace("__EXTERNAL_BROWSER_ENABLED__", "true" if external_browser_enabled else "false")
+          main_activity = main_activity.replace("__FILE_TRANSFER_ENABLED__", "true" if file_transfer_enabled else "false")
+          main_activity = main_activity.replace("__CLIPBOARD_ENABLED__", "true" if clipboard_enabled else "false")
+          main_activity = main_activity.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
+          main_activity = main_activity.replace("__PERMISSION_MANAGER__", permission_manager_block)
 
           with open(f"{java_dir}/MainActivity.java", "w") as f:
               f.write(main_activity.strip())
