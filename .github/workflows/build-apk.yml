@@ -173,7 +173,7 @@ jobs:
 
           php_support = config.get("phpSupport", True) and has_php_files
 
-          # Write app/build.gradle using safe placeholder replacements
+          # Write app/build.gradle using safe placeholder replacements (Removed NDK config block to prevent GHA failures)
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -1157,8 +1157,8 @@ jobs:
                       startPhpServer(__PHP_PORT__);
                       mWebView.loadUrl("http://127.0.0.1:__PHP_PORT__/__HOMEPAGE__");
                   } else {
-                      // Standard fallback file protocol to preserve YouTube APIs Referrer Origin restrictions
-                      mWebView.loadUrl("file:///android_asset/__HOMEPAGE__");
+                      // Custom WebViewAssetLoader secure context over file protocol for YouTube restrictions bypass
+                      mWebView.loadUrl("https://appassets.androidplatform.net/assets/__HOMEPAGE__");
                   }
 
                   handleNotificationAction(getIntent());
@@ -1919,7 +1919,7 @@ jobs:
                                   });
                               }
                               Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.EXTRA_LANGUAGE_MODEL_FREE_FORM);
                               intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
                               mContext.mSpeechRecognizer.startListening(intent);
                           }
