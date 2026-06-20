@@ -132,6 +132,16 @@ jobs:
               with open(config_path, "r") as f:
                   config = json.load(f)
 
+          # Safe Boolean Parsing Helper to avoid "false" string evaluation bugs
+          def get_bool(val, default=False):
+              if val is None:
+                  return default
+              if isinstance(val, bool):
+                  return val
+              if isinstance(val, str):
+                  return val.lower() in ['true', '1', 'yes', 'on']
+              return bool(val)
+
           # Extract configurations
           app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
@@ -143,39 +153,41 @@ jobs:
           splash_bg_color = config.get("splashBgColor", "#111827")
           splash_duration = int(config.get("splashDuration", 2000))
 
-          # Dynamic Feature Toggles
-          database_enabled = config.get("databaseEnabled", True)
-          camera_enabled = config.get("cameraEnabled", True)
-          notifications_enabled = config.get("notificationsEnabled", True)
-          local_storage_enabled = config.get("localStorageEnabled", True)
+          # Dynamic Feature Toggles with Safe Parsing
+          database_enabled = get_bool(config.get("databaseEnabled"), True)
+          camera_enabled = get_bool(config.get("cameraEnabled"), False)
+          notifications_enabled = get_bool(config.get("notificationsEnabled"), True)
+          local_storage_enabled = get_bool(config.get("localStorageEnabled"), True)
           
-          # Fixed to False to prevent fullscreen hiding the top Status Bar
-          fullscreen_enabled = config.get("fullscreenEnabled", False)
+          # Force set to False (keeps the device's system status bar visible at the top)
+          fullscreen_enabled = get_bool(config.get("fullscreenEnabled"), False)
           
-          autoplay_enabled = config.get("autoplayEnabled", True)
-          microphone_enabled = config.get("microphoneEnabled", True)
-          hide_title_bar = config.get("hideTitleBar", True)
-          swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
-          long_press_enabled = config.get("longPressEnabled", True)
+          autoplay_enabled = get_bool(config.get("autoplayEnabled"), True)
+          microphone_enabled = get_bool(config.get("microphoneEnabled"), False)
+          hide_title_bar = get_bool(config.get("hideTitleBar"), True)
+          swipe_refresh_enabled = get_bool(config.get("swipeRefreshEnabled"), True)
+          long_press_enabled = get_bool(config.get("longPressEnabled"), True)
           
-          # Fixed to False to remove native loading progress bar
-          loading_ui_enabled = config.get("loadingUIEnabled", False)
+          # Force set to False (completely hides the top loading progress bar)
+          loading_ui_enabled = get_bool(config.get("loadingUIEnabled"), False)
           
-          pc_mode_enabled = config.get("pcModeEnabled", False)
-          zoom_enabled = config.get("zoomEnabled", True)
-          has_custom_splash = config.get("hasCustomSplash", False)
+          pc_mode_enabled = get_bool(config.get("pcModeEnabled"), False)
+          zoom_enabled = get_bool(config.get("zoomEnabled"), True)
+          has_custom_splash = get_bool(config.get("hasCustomSplash"), False)
           php_port = int(config.get("phpPort", 8080))
 
           # Advanced Persisted Toggles (UI Patch Upgrades)
-          location_enabled = config.get("locationEnabled", False)
-          clipboard_enabled = config.get("clipboardEnabled", True)
-          secure_window_enabled = config.get("secureWindowEnabled", False)
-          keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
-          double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
-          external_browser_enabled = config.get("externalBrowserEnabled", True)
-          file_transfer_enabled = config.get("fileTransferEnabled", True)
-          biometric_enabled = config.get("biometricEnabled", False)
-          splash_screen_enabled = config.get("splashScreenEnabled", False)
+          location_enabled = get_bool(config.get("locationEnabled"), False)
+          clipboard_enabled = get_bool(config.get("clipboardEnabled"), True)
+          secure_window_enabled = get_bool(config.get("secureWindowEnabled"), False)
+          keep_screen_on_enabled = get_bool(config.get("keepScreenOnEnabled"), True)
+          double_back_exit_enabled = get_bool(config.get("doubleBackExitEnabled"), True)
+          external_browser_enabled = get_bool(config.get("externalBrowserEnabled"), True)
+          file_transfer_enabled = get_bool(config.get("fileTransferEnabled"), True)
+          biometric_enabled = get_bool(config.get("biometricEnabled"), False)
+          
+          # Safe extraction of Splash screen toggle (Defaults to False)
+          splash_screen_enabled = get_bool(config.get("splashScreenEnabled"), False)
 
           # Auto-detect if there are actually any PHP files inside assets
           has_php_files = False
@@ -188,7 +200,7 @@ jobs:
               if has_php_files:
                   break
 
-          php_support = config.get("phpSupport", True) and has_php_files
+          php_support = get_bool(config.get("phpSupport"), True) and has_php_files
 
           # Write app/build.gradle using safe placeholder replacements
           dependencies_block = """
@@ -246,13 +258,10 @@ jobs:
           </resources>
           """
           colors_xml = colors_xml_template.replace("__THEME_COLOR__", theme_color).replace("__SPLASH_BG_COLOR__", splash_bg_color)
-          with open("app/src/main/res/values/colors.xml", "f") as f:
-              f.write(colors_xml.strip()) if not os.path.exists("app/src/main/res/values/colors.xml") else None
-          # Force overwrite
           with open("app/src/main/res/values/colors.xml", "w") as f:
               f.write(colors_xml.strip())
 
-          # Write styles.xml
+          # Write styles.xml (Clean status-bar visibility setup)
           theme_style_parent = "Theme.AppCompat.Light.NoActionBar"
           theme_items = ""
           if fullscreen_enabled:
@@ -355,7 +364,7 @@ jobs:
           with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
               f.write(bg_tuik_badge_xml.strip())
 
-          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
+          # Generate custom_media_collapsed.xml
           custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root"
@@ -2442,7 +2451,7 @@ jobs:
                               builder.setContentTitle(title != null ? title : "File Download Service")
                                   .setContentText(message != null ? message : "Downloading system files...")
                                   .setSmallIcon(android.R.drawable.stat_sys_download)
-                                  .setCategory(NotificationCompat.CATEGORY_PROGRESS);
+                                  .setCategory(NotificationCompat.DIRECTORY_DOWNLOADS);
                           } else if (taskType.equals("upload")) {
                               String title = intent.getStringExtra("title");
                               String message = intent.getStringExtra("message");
@@ -2503,7 +2512,7 @@ jobs:
                       
                       paint.setShadowLayer(8f, 0f, 4f, 0xAA000000);
                       canvas.drawText(symbol, size / 2, (size / 2) - yOffset, paint);
-                      paint.clearShadowLayer();
+                      paint.close() if hasattr(paint, "close") else None;
                       
                       return bitmap;
                   }
