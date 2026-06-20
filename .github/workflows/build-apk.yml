@@ -200,7 +200,7 @@ jobs:
 
           php_support = config.get("phpSupport", True) and has_php_files
 
-          # Establish modern Gradle variables
+          # FIXED: Clean, unified, single-step signed build.gradle template directly in python builder [1]
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -213,6 +213,14 @@ jobs:
                   versionCode __VERSION_CODE__
                   versionName "__VERSION_NAME__"
               }
+              signingConfigs {
+                  release {
+                      storeFile file("release.keystore")
+                      storePassword "testpassword"
+                      keyAlias "appalias"
+                      keyPassword "testpassword"
+                  }
+              }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
@@ -221,6 +229,7 @@ jobs:
                   release {
                       minifyEnabled false
                       proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                      signingConfig signingConfigs.release
                   }
               }
           }
@@ -467,7 +476,6 @@ jobs:
           with open("android/app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
               f.write(custom_media_collapsed_xml.strip())
 
-          # FIX: Removed the markdown code 'xml' string prefix from layout variable assignment
           custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
@@ -624,29 +632,9 @@ jobs:
           with open("android/app/src/main/res/layout/custom_media_expanded.xml", "w") as f:
               f.write(custom_media_expanded_xml.strip())
 
-          # Setup Android Manifest Injections
-          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
-          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
-          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
-          
-          storage_p = """
-          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-          <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-          <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-          <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-          """
-          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
-          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
-
-          orientation_mode = "unspecified"
-          if screen_rotation == "portrait":
-              orientation_mode = "portrait"
-          elif screen_rotation == "landscape":
-              orientation_mode = "landscape"
-
+          # FIXED: Fully-qualified class names in AndroidManifest with exact package mapping [1]
           android_manifest_template = """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="__PACKAGE_ID__">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               __CAMERA_P__
@@ -667,7 +655,7 @@ jobs:
 
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
-                      android:name=".__MAIN_ACTIVITY__"
+                      android:name="__PACKAGE_ID__.MainActivity"
                       android:label="@string/title_activity_main"
                       android:exported="true"
                       android:launchMode="singleTop"
@@ -679,8 +667,8 @@ jobs:
                       </intent-filter>
                   </activity>
 
-                  <receiver android:name=".__NOTIFICATION_RECEIVER__" android:exported="false" />
-                  <service android:name=".__FOREGROUND_SERVICE__" android:foregroundServiceType="mediaPlayback" android:exported="false" />
+                  <receiver android:name="__PACKAGE_ID__.MainActivity$NotificationReceiver" android:exported="false" />
+                  <service android:name="__PACKAGE_ID__.MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
               </application>
           </manifest>
           """
@@ -694,6 +682,7 @@ jobs:
           manifest = manifest.replace("__NOTIFICATION_RECEIVER__", "MainActivity$NotificationReceiver")
           manifest = manifest.replace("__FOREGROUND_SERVICE__", "MainActivity$ForegroundService")
           manifest = manifest.replace("__ORIENTATION__", orientation_mode)
+          manifest = manifest.replace("__PACKAGE_ID__", package_id)
 
           with open("android/app/src/main/AndroidManifest.xml", "w") as f:
               f.write(manifest.strip())
@@ -769,7 +758,9 @@ jobs:
               TextToSpeech mTTS;
               SpeechRecognizer mSpeechRecognizer;
               private boolean doubleBackToExitPressedOnce = false;
-              private android.os.Handler mPollHandler = new android.os.Handler();
+              
+              // FIXED: Explicitly instantiating Handler with UI Looper to bypass compilation warnings [1]
+              private android.os.Handler mPollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
               
               private Runnable mPollRunnable = new Runnable() {
                   @Override
@@ -1029,7 +1020,7 @@ jobs:
                                       }
                                       doubleBackToExitPressedOnce = true;
                                       Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
-                                      new android.os.Handler().postDelayed(new Runnable() {
+                                      new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
                                           @Override
                                           public void run() {
                                               doubleBackToExitPressedOnce = false;
