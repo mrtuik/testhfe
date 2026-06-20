@@ -31,6 +31,11 @@ jobs:
       - name: Setup Android SDK (Licenses Auto-Accept)
         uses: android-actions/setup-android@v3
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -173,7 +178,7 @@ jobs:
           has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
 
-          # NEW FIXES: System Configuration variables mapping from config to prevent python process crash [1]
+          # System Configuration variables mapping from config to prevent python process crash [1]
           location_enabled = config.get("locationEnabled", False)
           biometric_enabled = config.get("biometricEnabled", False)
           file_transfer_enabled = config.get("fileTransferEnabled", True)
@@ -227,6 +232,7 @@ jobs:
               implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
               implementation 'com.google.android.material:material:1.9.0'
               implementation 'androidx.media:media:1.6.0'
+              implementation 'androidx.biometric:biometric:1.1.0'
           }
           """
           app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id)
@@ -751,6 +757,7 @@ jobs:
           import android.support.v4.media.MediaMetadataCompat;
           import java.util.ArrayList;
           import java.util.Locale;
+          __BIOMETRIC_IMPORTS__
           import com.getcapacitor.BridgeActivity;
           import __PACKAGE_ID__.R;
 
@@ -818,7 +825,10 @@ jobs:
                   webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   
                   mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
-                  mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
+                  
+                  if (__CLIPBOARD_ENABLED__) {
+                      mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
+                  }
 
                   mTTS = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
                       @Override
@@ -831,6 +841,32 @@ jobs:
 
                   createNotificationChannels();
                   __PERMISSION_MANAGER__
+
+                  mWebView.setDownloadListener(new DownloadListener() {
+                      @Override
+                      public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                          if (!__FILE_TRANSFER_ENABLED__) {
+                              return;
+                          }
+                          if (url.startsWith("blob:") || url.startsWith("data:")) {
+                              return;
+                          }
+                          DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                          request.setMimeType(mimetype);
+                          String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+                          request.setTitle(fileName);
+                          request.setDescription("Downloading target assets...");
+                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                          DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                          if (dm != null) {
+                              dm.enqueue(request);
+                              Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                          }
+                      }
+                  });
+
+                  __BIOMETRIC_INIT_LOGIC__
 
                   if (__PHP_SUPPORT__) {
                       copyAssetFolder("", getFilesDir().getAbsolutePath() + "/www");
@@ -970,6 +1006,37 @@ jobs:
                                   mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('NEXT_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex + 1) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=\\"playTrack\\"]'); if(playBtn) playBtn.click(); } })()");
                               } else if ("STOP".equals(action)) {
                                   mWebView.loadUrl("javascript:var btn = document.getElementById('playerStopBtn'); if(btn) btn.click();");
+                              }
+                          }
+                      }
+                  });
+              }
+
+              @Override
+              public void onBackPressed() {
+                  mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
+                      @Override
+                      public void onReceiveValue(String value) {
+                          if (value == null || value.equals("\"default\"") || value.equals("null") || value.equals("false")) {
+                              if (mWebView.canGoBack()) {
+                                  mWebView.goBack();
+                              } else {
+                                  if (__DOUBLE_BACK_EXIT__) {
+                                      if (doubleBackToExitPressedOnce) {
+                                          finish();
+                                          return;
+                                      }
+                                      doubleBackToExitPressedOnce = true;
+                                      Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
+                                      new android.os.Handler().postDelayed(new Runnable() {
+                                          @Override
+                                          public void run() {
+                                              doubleBackToExitPressedOnce = false;
+                                          }
+                                      }, 2000);
+                                  } else {
+                                      finish();
+                                  }
                               }
                           }
                       }
@@ -1136,14 +1203,14 @@ jobs:
           }
           """
           if camera_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
           if microphone_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
           if local_storage_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
           if location_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\\n'
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
 
           permission_manager_block += """
           if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1171,6 +1238,45 @@ jobs:
           main_activity = main_activity.replace("__CLIPBOARD_ENABLED__", "true" if clipboard_enabled else "false")
           main_activity = main_activity.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
           main_activity = main_activity.replace("__PERMISSION_MANAGER__", permission_manager_block)
+
+          # Biometrics placeholder replacements configuration
+          if biometric_enabled:
+              biometric_imports = "import androidx.biometric.BiometricPrompt;\nimport androidx.biometric.BiometricManager;"
+              biometric_logic = """
+              BiometricManager biometricManager = BiometricManager.from(this);
+              if (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS) {
+                  java.util.concurrent.Executor executor = ContextCompat.getMainExecutor(this);
+                  BiometricPrompt biometricPrompt = new BiometricPrompt(MainActivity.this, executor, new BiometricPrompt.AuthenticationCallback() {
+                      @Override
+                      public void onAuthenticationError(int errorCode, CharSequence errString) {
+                          super.onAuthenticationError(errorCode, errString);
+                          Toast.makeText(getApplicationContext(), "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                          finish();
+                      }
+                      @Override
+                      public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                          super.onAuthenticationSucceeded(result);
+                          Toast.makeText(getApplicationContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show();
+                      }
+                      @Override
+                      public void onAuthenticationFailed() {
+                          super.onAuthenticationFailed();
+                          Toast.makeText(getApplicationContext(), "Authentication failed", Toast.LENGTH_SHORT).show();
+                      }
+                  });
+                  BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
+                          .setTitle("Biometric Login")
+                          .setSubtitle("Log in using your credentials")
+                          .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                          .build();
+                  biometricPrompt.authenticate(promptInfo);
+              }
+              """
+              main_activity = main_activity.replace("__BIOMETRIC_IMPORTS__", biometric_imports)
+              main_activity = main_activity.replace("__BIOMETRIC_INIT_LOGIC__", biometric_logic)
+          else:
+              main_activity = main_activity.replace("__BIOMETRIC_IMPORTS__", "")
+              main_activity = main_activity.replace("__BIOMETRIC_INIT_LOGIC__", "")
 
           with open(f"{java_dir}/MainActivity.java", "w") as f:
               f.write(main_activity.strip())
