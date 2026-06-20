@@ -1602,21 +1602,12 @@ jobs:
                   stopService(serviceIntent);
               }
 
-              public void startForegroundTask(String taskType, String title, String message) {
-                  Intent serviceIntent = new Intent(this, ForegroundService.class);
-                  serviceIntent.putExtra("task_type", taskType);
-                  serviceIntent.putExtra("title", title);
-                  serviceIntent.putExtra("message", message);
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      startForegroundService(serviceIntent);
-                  } else {
-                      startService(serviceIntent);
-                  }
+              public void startForegroundTask(String trackName, String artistName, boolean isPlaying) {
+                  mContext.startMediaNotification(trackName, artistName, isPlaying);
               }
 
               public void stopForegroundTask() {
-                  Intent serviceIntent = new Intent(this, ForegroundService.class);
-                  stopService(serviceIntent);
+                  mContext.stopMediaNotification();
               }
 
               public void cancelNotification(int id) {
@@ -1629,576 +1620,149 @@ jobs:
                   manager.cancelAll();
               }
 
-              public void saveBase64File(final String base64Data, final String mimeType, final String fileName) {
+              public void saveBase64File(String base64Data, String mimeType, String fileName) {
+                  mContext.saveBase64File(base64Data, mimeType, fileName);
+              }
+
+              public void startNativeDownload(String urlString, String fileName) {
+                  mContext.startNativeDownload(urlString, fileName);
+              }
+
+              public void triggerDynamicNotification(String jsonStr) {
                   try {
-                      final byte[] fileBytes = Base64.decode(base64Data, Base64.DEFAULT);
-                      runOnUiThread(new Runnable() {
-                          @Override
-                          public void run() {
-                              try {
-                                  OutputStream os;
-                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                      ContentValues values = new ContentValues();
-                                      values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-                                      values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                                      values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                                      Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                                      if (uri == null) {
-                                          Toast.makeText(MainActivity.this, "Failed to create download target.", Toast.LENGTH_SHORT).show();
-                                          return;
-                                      }
-                                      os = getContentResolver().openOutputStream(uri);
-                                      if (os != null) {
-                                          os.write(fileBytes);
-                                          os.close();
-                                          Toast.makeText(MainActivity.this, "File saved to Downloads folder!", Toast.LENGTH_LONG).show();
-                                          showNotification("Download Completed", fileName + " saved to Downloads.");
-                                      }
-                                  } else {
-                                      java.io.File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                                      java.io.File file = new java.io.File(downloadDir, fileName);
-                                      os = new java.io.FileOutputStream(file);
-                                      if (os != null) {
-                                          os.write(fileBytes);
-                                          os.close();
-                                          Toast.makeText(MainActivity.this, "File saved to Downloads folder!", Toast.LENGTH_LONG).show();
-                                          showNotification("Download Completed", fileName + " saved to Downloads.");
-                                      }
-                                  }
-                              } catch (Exception ex) {
-                                  ex.printStackTrace();
-                                  Toast.makeText(MainActivity.this, "Error saving file: " + ex.getMessage(), Toast.LENGTH_LONG).show();
-                              }
-                          }
-                      });
-                  } catch (final Exception e) {
-                      e.printStackTrace();
-                      runOnUiThread(new Runnable() {
-                          @Override
-                          public void run() {
-                              Toast.makeText(MainActivity.this, "Decoder Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                          }
-                      });
-                  }
-              }
+                      org.json.JSONObject json = new org.json.JSONObject(jsonStr);
+                      int id = json.optInt("id", (int) System.currentTimeMillis());
+                      String title = json.optString("title", "App Alert");
+                      String message = json.optString("message", "");
 
-              public void startNativeDownload(final String urlString, final String fileName) {
-                  new Thread(new Runnable() {
-                      @Override
-                      public void run() {
-                          Uri uri = null;
-                          java.io.InputStream input = null;
-                          java.io.OutputStream output = null;
-                          java.net.HttpURLConnection connection = null;
-                          final int notificationId = 1001;
-                          
-                          try {
-                              showProgressNotification("Download Started", fileName, 0, 100, true, notificationId);
-                              
-                              java.net.URL url = new java.net.URL(urlString);
-                              connection = (java.net.HttpURLConnection) url.openConnection();
-                              connection.connect();
-                              
-                              if (connection.getResponseCode() != java.net.HttpURLConnection.HTTP_OK) {
-                                  throw new Exception("Server returned HTTP " + connection.getResponseCode());
-                              }
-                              
-                              int fileLength = connection.getContentLength();
-                              input = connection.getInputStream();
-                              
-                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                  ContentValues values = new ContentValues();
-                                  values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-                                  values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                                  uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                                  if (uri == null) throw new Exception("Failed to insert media store record");
-                                  output = getContentResolver().openOutputStream(uri);
-                              } else {
-                                  java.io.File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                                  java.io.File file = new java.io.File(downloadDir, fileName);
-                                  output = new java.io.FileOutputStream(file);
-                              }
-                              
-                              byte[] data = new byte[4096];
-                              long total = 0;
-                              int count;
-                              int lastProgress = 0;
-                              
-                              while ((count = input.read(data)) != -1) {
-                                  total += count;
-                                  if (fileLength > 0) {
-                                      int progress = (int) (total * 100 / fileLength);
-                                      if (progress - lastProgress >= 5 || progress == 100) {
-                                          lastProgress = progress;
-                                          showProgressNotification("Downloading", fileName, progress, 100, false, notificationId);
-                                      }
-                                  }
-                                  output.write(data, 0, count);
-                              }
-                              
-                              showNotification("Download Completed", fileName + " saved successfully.");
-                              runOnUiThread(new Runnable() {
-                                  @Override
-                                  public void run() {
-                                      Toast.makeText(MainActivity.this, "Download Complete: " + fileName, Toast.LENGTH_SHORT).show();
-                                  }
-                              });
-                              
-                          } catch (final Exception e) {
-                              e.printStackTrace();
-                              showNotification("Download Failed", fileName + " failed: " + e.getMessage());
-                              runOnUiThread(new Runnable() {
-                                  @Override
-                                  public void run() {
-                                      Toast.makeText(MainActivity.this, "Download Error: " + e.getLocalizedMessage(), Toast.LENGTH_LONG).show();
-                                  }
-                              });
-                          } finally {
-                              try {
-                                  if (output != null) output.close();
-                                  if (input != null) input.close();
-                              } catch (java.io.IOException ignored) {}
-                              if (connection != null) connection.disconnect();
-                          }
+                      if (json.optBoolean("foregroundService", false)) {
+                          mContext.startForegroundTask("background_task", title, message);
+                          return;
                       }
-                  }).start();
-              }
 
-              @Override
-              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-                  super.onActivityResult(requestCode, resultCode, data);
-                  if (requestCode == FILECHOOSER_RESULTCODE) {
-                      if (mUploadMessage == null) return;
-                      Uri[] results = null;
-                      if (resultCode == Activity.RESULT_OK) {
-                          if (data != null) {
-                              String dataString = data.getDataString();
-                              ClipData clipData = data.getClipData();
-                              if (clipData != null) {
-                                  results = new Uri[clipData.getItemCount()];
-                                  for (int i = 0; i < clipData.getItemCount(); i++) {
-                                      ClipData.Item item = clipData.getItemAt(i);
-                                      results[i] = item.getUri();
-                                  }
-                              }
-                              if (dataString != null) {
-                                  results = new Uri[]{Uri.parse(dataString)};
-                              }
-                          }
-                      }
-                      mUploadMessage.onReceiveValue(results);
-                      mUploadMessage = null;
-                  }
-              }
+                      String channelId = json.optString("channelId", "default");
+                      int importance = json.optInt("importance", 3);
 
-              @Override
-              public void onBackPressed() {
-                  mWebView.evaluateJavascript("javascript:if(window.onBackPressed){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
-                      @Override
-                      public void onReceiveValue(String value) {
-                          if (value == null || value.equals("\\"default\\"") || value.equals("null") || value.equals("false")) {
-                              if (mWebView.canGoBack()) {
-                                  mWebView.goBack();
-                              } else {
-                                  showExitDialog();
-                              }
-                          }
-                      }
-                  });
-              }
-
-              private void showExitDialog() {
-                  androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-                  builder.setTitle("Exit Application");
-                  builder.setMessage("Are you sure you want to exit?");
-                  builder.setPositiveButton("Exit", new android.content.DialogInterface.OnClickListener() {
-                      @Override
-                      public void onClick(android.content.DialogInterface dialog, int which) {
-                          finish();
-                      }
-                  });
-                  builder.setNegativeButton("Cancel", new android.content.DialogInterface.OnClickListener() {
-                      @Override
-                      public void onClick(android.content.DialogInterface dialog, int which) {
-                          dialog.dismiss();
-                      }
-                  });
-                  androidx.appcompat.app.AlertDialog builder_dialog = builder.create();
-                  builder_dialog.show();
-                  int colorPrimary = ContextCompat.getColor(MainActivity.this, R.color.colorPrimary);
-                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setTextColor(colorPrimary);
-                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).setTextColor(colorPrimary);
-              }
-
-              private void handleNotificationAction(Intent intent) {
-                  if (intent != null && intent.hasExtra("notification_action")) {
-                      final String actionCode = intent.getStringExtra("notification_action");
-                      triggerWebAction(actionCode);
-                  }
-              }
-
-              private void updateMediaSessionState(String trackName, double currentTime, double duration, boolean isPlaying) {
-                  Intent intent = new Intent(this, ForegroundService.class);
-                  intent.setAction("UPDATE_PROGRESS");
-                  intent.putExtra("task_type", "media");
-                  intent.putExtra("trackName", trackName);
-                  intent.putExtra("currentTime", (long)(currentTime * 1000));
-                  intent.putExtra("duration", (long)(duration * 1000));
-                  intent.putExtra("isPlaying", isPlaying);
-                  startService(intent);
-              }
-
-              public void triggerWebAction(final String action) {
-                  runOnUiThread(new Runnable() {
-                      @Override
-                      public void run() {
-                          if (mWebView != null) {
-                              if ("PREV".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('PREV_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex - 1 + items.length) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=\\"playTrack\\"]'); if(playBtn) playBtn.click(); } })()");
-                              } else if ("PLAY_PAUSE".equals(action) || "TOGGLE_PLAY_ACTION".equals(action)) {
-                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerPlayPauseBtn'); if(btn) btn.click();");
-                              } else if ("NEXT".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('NEXT_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex + 1) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=\\"playTrack\\"]'); if(playBtn) playBtn.click(); } })()");
-                              } else if ("STOP".equals(action) || "STOP_ACTION".equals(action)) {
-                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerStopBtn'); if(btn) btn.click();");
-                              } else if ("REWIND".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) audio.currentTime = Math.max(0, audio.currentTime - 10); })()");
-                              } else if ("FAST_FORWARD".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); })()");
-                              }
-                          }
-                      }
-                  });
-              }
-
-              public static class WebAppInterface {
-                  private MainActivity mContext;
-
-                  public WebAppInterface(MainActivity context) {
-                      this.mContext = context;
-                  }
-
-                  @JavascriptInterface
-                  public void speak(String text) {
-                      if (mContext.mTTS != null) {
-                          mContext.mTTS.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID");
-                      }
-                  }
-
-                  @JavascriptInterface
-                  public void startSpeechRecognition() {
-                      mContext.runOnUiThread(new Runnable() {
-                          @Override
-                          public void run() {
-                              if (mContext.mSpeechRecognizer == null) {
-                                  mContext.mSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(mContext);
-                                  mContext.mSpeechRecognizer.setRecognitionListener(new RecognitionListener() {
-                                      @Override
-                                      public void onReadyForSpeech(Bundle params) {}
-                                      @Override
-                                      public void onBeginningOfSpeech() {}
-                                      @Override
-                                      public void onRmsChanged(float rmsdB) {}
-                                      @Override
-                                      public void onBufferReceived(byte[] buffer) {}
-                                      @Override
-                                      public void onEndOfSpeech() {}
-                                      @Override
-                                      public void onError(int error) {}
-                                      @Override
-                                      public void onResults(Bundle results) {
-                                          ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                                          if (matches != null && !matches.isEmpty()) {
-                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\'") + "'); }");
-                                          }
-                                      }
-                                      @Override
-                                      public void onPartialResults(Bundle partialResults) {}
-                                      @Override
-                                      public void onEvent(int eventType, Bundle params) {}
-                                  });
-                              }
-                              Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
-                              mContext.mSpeechRecognizer.startListening(intent);
-                          }
-                      });
-                  }
-
-                  @JavascriptInterface
-                  public void stopSpeechRecognition() {
-                      mContext.runOnUiThread(new Runnable() {
-                          @Override
-                          public void run() {
-                              if (mContext.mSpeechRecognizer != null) {
-                                  mContext.mSpeechRecognizer.stopListening();
-                              }
-                          }
-                      });
-                  }
-
-                  @JavascriptInterface
-                  public void copyToClipboard(String text) {
-                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
-                      ClipData clip = ClipData.newPlainText("Copied Text", text);
-                      if (clipboard != null) {
-                          clipboard.setPrimaryClip(clip);
-                          Toast.makeText(mContext, "Copied to clipboard!", Toast.LENGTH_SHORT).show();
-                      }
-                  }
-
-                  @JavascriptInterface
-                  public void showNotification(String title, String message) {
-                      mContext.showNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void showBigTextNotification(String title, String message, String bigText, String summary) {
-                      mContext.showBigTextNotification(title, message, bigText, summary);
-                  }
-
-                  @JavascriptInterface
-                  public void showBigPictureNotification(String title, String message, String base64Image) {
-                      mContext.showBigPictureNotification(title, message, base64Image);
-                  }
-
-                  @JavascriptInterface
-                  public void showInboxNotification(String title, String message, String linesJsonArray) {
-                      mContext.showInboxNotification(title, message, linesJsonArray);
-                  }
-
-                  @JavascriptInterface
-                  public void showActionNotification(String title, String message, String buttonText, String extraValue) {
-                      mContext.showActionNotification(title, message, buttonText, extraValue);
-                  }
-
-                  @JavascriptInterface
-                  public void showMessagingNotification(String senderName, String messageText, String conversationTitle) {
-                      mContext.showMessagingNotification(senderName, messageText, conversationTitle);
-                  }
-
-                  @JavascriptInterface
-                  public void showFullScreenNotification(String title, String message) {
-                      mContext.showFullScreenNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void showProgressNotification(String title, String message, int progress, int max, boolean indeterminate, int id) {
-                      mContext.showProgressNotification(title, message, progress, max, indeterminate, id);
-                  }
-
-                  @JavascriptInterface
-                  public void scheduleNotification(String title, String message, int delaySeconds) {
-                      mContext.scheduleNotification(title, message, delaySeconds);
-                  }
-
-                  @JavascriptInterface
-                  public void showSilentNotification(String title, String message) {
-                      mContext.showSilentNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void showHeadsUpNotification(String title, String message) {
-                      mContext.showHeadsUpNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void showOngoingNotification(String title, String message, int id) {
-                      mContext.showOngoingNotification(title, message, id);
-                  }
-
-                  @JavascriptInterface
-                  public void showGroupedNotifications(String groupKey, String title1, String text1, String title2, String text2) {
-                      mContext.showGroupedNotifications(groupKey, title1, text1, title2, text2);
-                  }
-
-                  @JavascriptInterface
-                  public void showCustomLayoutNotification(String title, String message) {
-                      mContext.showCustomLayoutNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void updateBadgeCount(int count) {
-                      mContext.updateBadgeCount(count);
-                  }
-
-                  @JavascriptInterface
-                  public void startMediaNotification(String trackName, String artistName, boolean isPlaying) {
-                      mContext.startMediaNotification(trackName, artistName, isPlaying);
-                  }
-
-                  @JavascriptInterface
-                  public void stopMediaNotification() {
-                      mContext.stopMediaNotification();
-                  }
-
-                  @JavascriptInterface
-                  public void startForegroundTask(String trackName, String artistName, boolean isPlaying) {
-                      mContext.startMediaNotification(trackName, artistName, isPlaying);
-                  }
-
-                  @JavascriptInterface
-                  public void stopForegroundTask() {
-                      mContext.stopMediaNotification();
-                  }
-
-                  @JavascriptInterface
-                  public void cancelNotification(int id) {
-                      mContext.cancelNotification(id);
-                  }
-
-                  @JavascriptInterface
-                  public void cancelAllNotifications() {
-                      mContext.cancelAllNotifications();
-                  }
-
-                  @JavascriptInterface
-                  public void saveBase64File(String base64Data, String mimeType, String fileName) {
-                      mContext.saveBase64File(base64Data, mimeType, fileName);
-                  }
-
-                  @JavascriptInterface
-                  public void startNativeDownload(String urlString, String fileName) {
-                      mContext.startNativeDownload(urlString, fileName);
-                  }
-
-                  @JavascriptInterface
-                  public void triggerDynamicNotification(String jsonStr) {
-                      try {
-                          org.json.JSONObject json = new org.json.JSONObject(jsonStr);
-                          int id = json.optInt("id", (int) System.currentTimeMillis());
-                          String title = json.optString("title", "App Alert");
-                          String message = json.optString("message", "");
-
-                          if (json.optBoolean("foregroundService", false)) {
-                              mContext.startForegroundTask("background_task", title, message);
-                              return;
-                          }
-
-                          String channelId = json.optString("channelId", "default");
-                          int importance = json.optInt("importance", 3);
-
-                          NotificationCompat.Builder builder;
-                          if (channelId.equals("media")) {
-                              builder = new NotificationCompat.Builder(mContext, "media_channel");
-                          } else if (channelId.equals("silent_ch")) {
-                              builder = new NotificationCompat.Builder(mContext, "silent_channel");
-                          } else if (channelId.equals("critical") || importance == 4) {
-                              builder = new NotificationCompat.Builder(mContext, "high_importance");
-                          } else if (channelId.equals("progress")) {
-                              builder = new NotificationCompat.Builder(mContext, "progress_channel");
-                          } else {
-                              builder = new NotificationCompat.Builder(mContext, "default");
-                          }
-
-                          builder.setSmallIcon(mContext.getApplicationInfo().icon)
-                                  .setContentTitle(title)
-                                  .setContentText(message)
-                                  .setColor(ContextCompat.getColor(mContext, R.color.colorPrimary))
-                                  .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                                  .setAutoCancel(true);
-
-                          if (json.optBoolean("ongoing", false)) {
-                              builder.setOngoing(true);
-                          }
-
-                          if (json.optBoolean("silent", false)) {
-                              builder.setPriority(NotificationCompat.PRIORITY_MIN);
-                          }
-
-                          if (json.optString("type", "").equals("custom")) {
-                              android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(mContext.getPackageName(), R.layout.custom_notification);
-                              remoteViews.setImageViewResource(R.id.custom_icon, mContext.getApplicationInfo().icon);
-                              remoteViews.setTextViewText(R.id.custom_title, title);
-                              remoteViews.setTextViewText(R.id.custom_text, message);
-                              builder.setCustomContentView(remoteViews);
-                          }
-
-                          if (json.has("bigText")) {
-                              builder.setStyle(new NotificationCompat.BigTextStyle().bigText(json.getString("bigText")));
-                          }
-
-                          if (json.has("bigPictureBase64")) {
-                              byte[] decodedString = Base64.decode(json.getString("bigPictureBase64"), Base64.DEFAULT);
-                              android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
-                              builder.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bitmap));
-                          }
-
-                          if (json.has("inboxLines")) {
-                              org.json.JSONArray lines = json.getJSONArray("inboxLines");
-                              NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
-                              for (int i = 0; i < lines.length(); i++) {
-                                  inboxStyle.addLine(lines.getString(i));
-                              }
-                              builder.setStyle(inboxStyle);
-                          }
-
-                          if (json.has("progress") && json.has("maxProgress")) {
-                              int progress = json.getInt("progress");
-                              int max = json.getInt("maxProgress");
-                              builder.setProgress(max, progress, json.optBoolean("indeterminate", false));
-                          } else if (json.optBoolean("indeterminate", false)) {
-                              builder.setProgress(0, 0, true);
-                          }
-
-                          if (json.has("actions")) {
-                              org.json.JSONArray actions = json.getJSONArray("actions");
-                              for (int i = 0; i < actions.length(); i++) {
-                                  org.json.JSONObject act = actions.getJSONObject(i);
-                                  String actTitle = act.optString("title", "Action");
-                                  String actCode = act.optString("actionCode", "ACTION");
-
-                                  Intent actionIntent = new Intent(mContext, MainActivity.class);
-                                  actionIntent.putExtra("notification_action", actCode);
-                                  actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                  android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, (int)System.currentTimeMillis() + i, actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-                                  builder.addAction(android.R.drawable.ic_menu_send, actTitle, pIntent);
-                              }
-                          }
-
-                          if (json.has("delayMs")) {
-                              int delaySeconds = json.getInt("delayMs") / 1000;
-                              mContext.scheduleNotification(title, message, delaySeconds);
-                              return;
-                          }
-
-                          if (json.has("badgeCount")) {
-                              builder.setNumber(json.getInt("badgeCount"));
-                          }
-
-                          if (json.optBoolean("fullScreen", false)) {
-                              Intent fullScreenIntent = new Intent(mContext, MainActivity.class);
-                              android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
-                              builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                                      .setCategory(NotificationCompat.CATEGORY_CALL)
-                                      .setFullScreenIntent(pIntent, true);
-                          }
-
-                          NotificationManagerCompat manager = NotificationManagerCompat.from(mContext);
-                          manager.notify(id, builder.build());
-
-                      } catch (Exception e) {
-                          e.printStackTrace();
-                      }
-                  }
-
-                  @JavascriptInterface
-                  public void updatePlaybackNotification(String trackName, boolean isPlaying) {
-                      if (trackName == null || trackName.isEmpty()) {
-                          mContext.stopMediaNotification();
+                      NotificationCompat.Builder builder;
+                      if (channelId.equals("media")) {
+                          builder = new NotificationCompat.Builder(mContext, "media_channel");
+                      } else if (channelId.equals("silent_ch")) {
+                          builder = new NotificationCompat.Builder(mContext, "silent_channel");
+                      } else if (channelId.equals("critical") || importance == 4) {
+                          builder = new NotificationCompat.Builder(mContext, "high_importance");
+                      } else if (channelId.equals("progress")) {
+                          builder = new NotificationCompat.Builder(mContext, "progress_channel");
                       } else {
-                          mContext.startMediaNotification(trackName, "Playing Track", isPlaying);
+                          builder = new NotificationCompat.Builder(mContext, "default");
                       }
+
+                      builder.setSmallIcon(mContext.getApplicationInfo().icon)
+                              .setContentTitle(title)
+                              .setContentText(message)
+                              .setColor(ContextCompat.getColor(mContext, R.color.colorPrimary))
+                              .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                              .setAutoCancel(true);
+
+                      if (json.optBoolean("ongoing", false)) {
+                          builder.setOngoing(true);
+                      }
+
+                      if (json.optBoolean("silent", false)) {
+                          builder.setPriority(NotificationCompat.PRIORITY_MIN);
+                      }
+
+                      if (json.optString("type", "").equals("custom")) {
+                          android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(mContext.getPackageName(), R.layout.custom_notification);
+                          remoteViews.setImageViewResource(R.id.custom_icon, mContext.getApplicationInfo().icon);
+                          remoteViews.setTextViewText(R.id.custom_title, title);
+                          remoteViews.setTextViewText(R.id.custom_text, message);
+                          builder.setCustomContentView(remoteViews);
+                      }
+
+                      if (json.has("bigText")) {
+                          builder.setStyle(new NotificationCompat.BigTextStyle().bigText(json.getString("bigText")));
+                      }
+
+                      if (json.has("bigPictureBase64")) {
+                          byte[] decodedString = Base64.decode(json.getString("bigPictureBase64"), Base64.DEFAULT);
+                          android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                          builder.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bitmap));
+                      }
+
+                      if (json.has("inboxLines")) {
+                          org.json.JSONArray lines = json.getJSONArray("inboxLines");
+                          NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
+                          for (int i = 0; i < lines.length(); i++) {
+                              inboxStyle.addLine(lines.getString(i));
+                          }
+                          builder.setStyle(inboxStyle);
+                      }
+
+                      if (json.has("progress") && json.has("maxProgress")) {
+                          int progress = json.getInt("progress");
+                          int max = json.getInt("maxProgress");
+                          builder.setProgress(max, progress, json.optBoolean("indeterminate", false));
+                      } else if (json.optBoolean("indeterminate", false)) {
+                          builder.setProgress(0, 0, true);
+                      }
+
+                      if (json.has("actions")) {
+                          org.json.JSONArray actions = json.getJSONArray("actions");
+                          for (int i = 0; i < actions.length(); i++) {
+                              org.json.JSONObject act = actions.getJSONObject(i);
+                              String actTitle = act.optString("title", "Action");
+                              String actCode = act.optString("actionCode", "ACTION");
+
+                              Intent actionIntent = new Intent(mContext, MainActivity.class);
+                              actionIntent.putExtra("notification_action", actCode);
+                              actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                              android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, (int)System.currentTimeMillis() + i, actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                              builder.addAction(android.R.drawable.ic_menu_send, actTitle, pIntent);
+                          }
+                      }
+
+                      if (json.has("delayMs")) {
+                          int delaySeconds = json.getInt("delayMs") / 1000;
+                          mContext.scheduleNotification(title, message, delaySeconds);
+                          return;
+                      }
+
+                      if (json.has("badgeCount")) {
+                          builder.setNumber(json.getInt("badgeCount"));
+                      }
+
+                      if (json.optBoolean("fullScreen", false)) {
+                          Intent fullScreenIntent = new Intent(mContext, MainActivity.class);
+                          android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                          builder.setPriority(NotificationCompat.PRIORITY_MAX)
+                                  .setCategory(NotificationCompat.CATEGORY_CALL)
+                                  .setFullScreenIntent(pIntent, true);
+                      }
+
+                      NotificationManagerCompat manager = NotificationManagerCompat.from(mContext);
+                      manager.notify(id, builder.build());
+
+                  } catch (Exception e) {
+                      e.printStackTrace();
                   }
               }
 
-              // Background Native Clipboard Interface Fallback
-              public static class ClipboardInterface {
-                  private Context mContext;
-                  public ClipboardInterface(Context context) {
-                      this.mContext = context;
+              @Override
+              public void updatePlaybackNotification(String trackName, boolean isPlaying) {
+                  if (trackName == null || trackName.isEmpty()) {
+                      mContext.stopMediaNotification();
+                  } else {
+                      mContext.startMediaNotification(trackName, "Playing Track", isPlaying);
                   }
+              }
+          }
+
+          // Background Native Clipboard Interface Fallback
+          public static class ClipboardInterface {
+              private Context mContext;
+              public ClipboardInterface(Context context) {
+                  this.mContext = context;
+              }
 
                   @JavascriptInterface
                   public void copyToClipboard(String text) {
