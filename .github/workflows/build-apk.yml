@@ -467,8 +467,8 @@ jobs:
           with open("android/app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
               f.write(custom_media_collapsed_xml.strip())
 
-          custom_media_expanded_xml = """xml
-          <?xml version="1.0" encoding="utf-8"?>
+          # FIX: Removed the markdown code 'xml' string prefix from layout variable assignment
+          custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
               android:layout_width="match_parent"
