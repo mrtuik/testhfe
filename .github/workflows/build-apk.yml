@@ -328,7 +328,7 @@ jobs:
           with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
               f.write(bg_tuik_badge_xml.strip())
 
-          # Generate custom_media_collapsed.xml
+          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
           custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root"
@@ -384,7 +384,7 @@ jobs:
                           android:layout_height="10dp"
                           android:src="@drawable/ic_notification_code"
                           android:layout_marginRight="4dp"/>
-                      <getButton
+                      <TextView
                           android:layout_width="wrap_content"
                           android:layout_height="wrap_content"
                           android:text="Tuik"
@@ -443,7 +443,8 @@ jobs:
               f.write(custom_media_collapsed_xml.strip())
 
           # Generate custom_media_expanded.xml
-          custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
+          custom_media_expanded_xml = """xml
+          <?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
               android:layout_width="match_parent"
@@ -1458,7 +1459,7 @@ jobs:
                       .setPriority(NotificationCompat.PRIORITY_LOW)
                       .setProgress(max, progress, indeterminate);
 
-                  NotificationManagerCompat manager = NotificationManagerCompat.from(id, builder.build().priority);
+                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
                   manager.notify(id, builder.build());
               }
 
@@ -1574,7 +1575,8 @@ jobs:
                           .setContentText("Active Badge count set to " + count)
                           .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
                           .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                          .setLanguage(Locale.getDefault().toString()); // safe initialization dummy field bypass
+                          .setNumber(count)
+                          .setAutoCancel(true);
 
                   NotificationManagerCompat manager = NotificationManagerCompat.from(this);
                   manager.notify(9999, builder.build());
