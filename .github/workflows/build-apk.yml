@@ -1,4 +1,4 @@
-name: Build APK from Web Archive (Stable Cap 5)
+name: Build APK from Web Archive
 
 on:
   workflow_dispatch:
@@ -22,16 +22,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Extract User Web Payload
         run: |
@@ -44,11 +47,10 @@ jobs:
               fi
           fi
 
-      - name: Initialize Capacitor 5 Project
+      - name: Initialize Capacitor 6 Project
         run: |
           npm init -y
-          # Strictly lock to Capacitor 5 to ensure Community Plugins compile successfully
-          npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 --legacy-peer-deps
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
           
           rm -f capacitor.config.ts capacitor.config.js
@@ -67,11 +69,12 @@ jobs:
           EOF
           sed -i "s/___PACKAGE_ID___/${PACKAGE_ID}/g" capacitor.config.json
           sed -i "s/___APP_NAME___/${APP_NAME}/g" capacitor.config.json
+          
           npx cap add android
 
       - name: Generate App Icons
         run: |
-          npm install -g @capacitor/assets@3
+          npm install -g @capacitor/assets@3 --legacy-peer-deps
           mkdir -p assets
           if [ -f "www/_app_icon.png" ]; then
             cp www/_app_icon.png assets/icon.png
@@ -85,51 +88,46 @@ jobs:
             npx capacitor-assets generate --android || true
           fi
 
-      - name: Install Native Plugins (Cap 5 Compatible)
+      - name: Install Native Plugins
         run: |
-          npm install @capacitor/splash-screen@5 @capacitor/app@5 @capacitor/haptics@5 @capacitor/keyboard@5 @capacitor/status-bar@5 --legacy-peer-deps
-          npm install @capacitor-community/text-to-speech @capacitor-community/admob --legacy-peer-deps
+          npm install @capacitor/splash-screen@6 @capacitor/app@6 @capacitor/haptics@6 @capacitor/keyboard@6 @capacitor/status-bar@6 --legacy-peer-deps
+          npm install @capacitor-community/admob --legacy-peer-deps
           npx cap sync android
 
       - name: Configure Android Manifest & Permissions
         run: |
-          cat << 'EOF' > modify_manifest.py
-          import json, os
-          config = {}
-          if os.path.exists('www/app_config.json'):
-              try:
-                  with open('www/app_config.json', 'r') as f:
-                      config = json.load(f)
-              except:
-                  pass
+          node -e "
+          const fs = require('fs');
+          let config = {};
+          try { config = JSON.parse(fs.readFileSync('www/app_config.json', 'utf8')); } catch(e) {}
           
-          admob_id = config.get('admobAppId', '').strip()
-          if not admob_id:
-              admob_id = 'ca-app-pub-3940256099942544~3347511713' # Google Test ID
-              
-          manifest_path = 'android/app/src/main/AndroidManifest.xml'
-          if os.path.exists(manifest_path):
-              with open(manifest_path, 'r') as f:
-                  manifest = f.read()
-              meta_tag = f'<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_id}"/>'
-              if 'com.google.android.gms.ads.APPLICATION_ID' not in manifest:
-                  manifest = manifest.replace('</application>', f'    {meta_tag}\n    </application>')
-                  
-              perms = [
-                  '<uses-permission android:name="android.permission.INTERNET" />',
-                  '<uses-permission android:name="android.permission.WAKE_LOCK" />',
-                  '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
-                  '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
-                  '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />'
-              ]
-              for p in perms:
-                  if p not in manifest:
-                      manifest = manifest.replace('</manifest>', f'    {p}\n</manifest>')
-                      
-              with open(manifest_path, 'w') as f:
-                  f.write(manifest)
-          EOF
-          python3 modify_manifest.py
+          const admobId = config.admobAppId || 'ca-app-pub-3940256099942544~3347511713';
+          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+          
+          if(fs.existsSync(manifestPath)) {
+            let manifest = fs.readFileSync(manifestPath, 'utf8');
+            const meta = \`<meta-data android:name=\\\"com.google.android.gms.ads.APPLICATION_ID\\\" android:value=\\\"\${admobId}\\\"/>\`;
+            if(!manifest.includes('com.google.android.gms.ads.APPLICATION_ID')) {
+              manifest = manifest.replace('</application>', \`    \${meta}\\n    </application>\`);
+            }
+            
+            const perms = [
+              '<uses-permission android:name=\"android.permission.INTERNET\" />',
+              '<uses-permission android:name=\"android.permission.WAKE_LOCK\" />',
+              '<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />',
+              '<uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />',
+              '<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />'
+            ];
+            
+            perms.forEach(p => {
+              if(!manifest.includes(p)) {
+                manifest = manifest.replace('</manifest>', \`    \${p}\\n</manifest>\`);
+              }
+            });
+            
+            fs.writeFileSync(manifestPath, manifest);
+          }
+          "
 
       - name: Fetch PHP 8.4 Binary
         run: |
@@ -143,54 +141,72 @@ jobs:
               fi
           fi
 
-      - name: Safely Overwrite MainActivity for PHP Server
+      - name: Modify MainActivity for PHP Server
         run: |
-          MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
-          if [ -n "$MAIN_ACTIVITY_PATH" ]; then
-          cat << EOF > "$MAIN_ACTIVITY_PATH"
-          package ${PACKAGE_ID};
-
-          import android.os.Bundle;
-          import java.io.File;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  startPhpServer();
+          node -e "
+          const fs = require('fs');
+          const path = require('path');
+          
+          function findMainActivity(dir) {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+              const fullPath = path.join(dir, file);
+              if (fs.statSync(fullPath).isDirectory()) {
+                const result = findMainActivity(fullPath);
+                if (result) return result;
+              } else if (file === 'MainActivity.java') {
+                return fullPath;
               }
-
-              private void startPhpServer() {
-                  new Thread(() -> {
-                      try {
-                          String nativeDir = getApplicationInfo().nativeLibraryDir;
-                          String phpBinary = nativeDir + "/libphp.so";
-                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + "/public";
-                          File binaryFile = new File(phpBinary);
-                          if (binaryFile.exists()) binaryFile.setExecutable(true, false);
-                          ProcessBuilder pb = new ProcessBuilder(phpBinary, "-S", "127.0.0.1:8080", "-t", docRoot);
-                          pb.redirectErrorStream(true);
-                          Process phpProcess = pb.start();
-                      } catch (Exception e) {
-                          e.printStackTrace();
-                      }
-                  }).start();
-              }
+            }
+            return null;
           }
-          EOF
-          fi
+          
+          const mainActivityPath = findMainActivity('android/app/src/main/java');
+          
+          if(mainActivityPath && fs.existsSync(mainActivityPath)) {
+            let code = fs.readFileSync(mainActivityPath, 'utf8');
+            
+            if(!code.includes('android.os.Bundle')) {
+              code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\\nimport android.os.Bundle;\\nimport java.io.File;');
+            }
+            
+            const method = \`
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                new Thread(() -> {
+                    try {
+                        String nativeDir = getApplicationInfo().nativeLibraryDir;
+                        String phpBinary = nativeDir + \\\"/libphp.so\\\";
+                        String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + \\\"/public\\\";
+                        File binaryFile = new File(phpBinary);
+                        if (binaryFile.exists()) binaryFile.setExecutable(true, false);
+                        ProcessBuilder pb = new ProcessBuilder(phpBinary, \\\"-S\\\", \\\"127.0.0.1:8080\\\", \\\"-t\\\", docRoot);
+                        pb.redirectErrorStream(true);
+                        pb.start();
+                    } catch (Exception e) { e.printStackTrace(); }
+                }).start();
+            }\`;
+            
+            if(!code.includes('onCreate(Bundle')) {
+              code = code.replace('public class MainActivity extends BridgeActivity {', 'public class MainActivity extends BridgeActivity {\\n' + method);
+              fs.writeFileSync(mainActivityPath, code);
+            }
+          }
+          "
 
       - name: Build Android APK
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon --no-build-cache
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
 
       - name: Package APK into ZIP
         run: |
           CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
           ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
+          
           cd android/app/build/outputs/apk/debug/
           mv app-debug.apk $APK_NAME
           zip -r ../../../../../$ZIP_NAME $APK_NAME
