@@ -672,7 +672,7 @@ jobs:
           with open("app/src/main/res/layout/activity_main.xml", "w") as f:
               f.write(activity_main_xml.strip())
 
-          # Handle Advanced Android Permissions
+          # Handle Advanced Android Permissions (Completely Removed Location Permissions)
           camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
           audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
           notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
@@ -699,8 +699,6 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
               __CAMERA_PERMISSION_MANIFEST__
               __AUDIO_PERMISSION_MANIFEST__
               __NOTIFICATION_PERMISSION_MANIFEST__
@@ -870,8 +868,6 @@ jobs:
               permissions.add("android.permission.READ_MEDIA_AUDIO");
               permissions.add("android.permission.READ_MEDIA_VIDEO");
           }
-          permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
-          permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
           """
           if camera_enabled:
               permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
@@ -915,7 +911,6 @@ jobs:
           import android.view.Window;
           import android.webkit.DownloadListener;
           import android.webkit.PermissionRequest;
-          import android.webkit.GeolocationPermissions;
           import android.webkit.URLUtil;
           import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
@@ -1006,7 +1001,7 @@ jobs:
 
                   WebSettings webSettings = mWebView.getSettings();
                   webSettings.setJavaScriptEnabled(true);
-                  webSettings.setGeolocationEnabled(true);
+                  webSettings.setGeolocationEnabled(false);
                   webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   __LOCAL_STORAGE__
                   __ZOOM__
@@ -1101,11 +1096,6 @@ jobs:
                                   }
                               }
                           });
-                      }
-                      
-                      @Override
-                      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
-                          callback.invoke(origin, true, false);
                       }
 
                       @Override
@@ -2105,84 +2095,84 @@ jobs:
                                   .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                                   .setAutoCancel(true);
 
-                      if (json.optBoolean("ongoing", false)) {
-                          builder.setOngoing(true);
-                      }
-
-                      if (json.optBoolean("silent", false)) {
-                          builder.setPriority(NotificationCompat.PRIORITY_MIN);
-                      }
-
-                      if (json.optString("type", "").equals("custom")) {
-                          android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(mContext.getPackageName(), R.layout.custom_notification);
-                          remoteViews.setImageViewResource(R.id.custom_icon, mContext.getApplicationInfo().icon);
-                          remoteViews.setTextViewText(R.id.custom_title, title);
-                          remoteViews.setTextViewText(R.id.custom_text, message);
-                          builder.setCustomContentView(remoteViews);
-                      }
-
-                      if (json.has("bigText")) {
-                          builder.setStyle(new NotificationCompat.BigTextStyle().bigText(json.getString("bigText")));
-                      }
-
-                      if (json.has("bigPictureBase64")) {
-                          byte[] decodedString = Base64.decode(json.getString("bigPictureBase64"), Base64.DEFAULT);
-                          android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
-                          builder.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bitmap));
-                      }
-
-                      if (json.has("inboxLines")) {
-                          org.json.JSONArray lines = json.getJSONArray("inboxLines");
-                          NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
-                          for (int i = 0; i < lines.length(); i++) {
-                              inboxStyle.addLine(lines.getString(i));
+                          if (json.optBoolean("ongoing", false)) {
+                              builder.setOngoing(true);
                           }
-                          builder.setStyle(inboxStyle);
-                      }
 
-                      if (json.has("progress") && json.has("maxProgress")) {
-                          int progress = json.getInt("progress");
-                          int max = json.getInt("maxProgress");
-                          builder.setProgress(max, progress, json.optBoolean("indeterminate", false));
-                      } else if (json.optBoolean("indeterminate", false)) {
-                          builder.setProgress(0, 0, true);
-                      }
-
-                      if (json.has("actions")) {
-                          org.json.JSONArray actions = json.getJSONArray("actions");
-                          for (int i = 0; i < actions.length(); i++) {
-                              org.json.JSONObject act = actions.getJSONObject(i);
-                              String actTitle = act.optString("title", "Action");
-                              String actCode = act.optString("actionCode", "ACTION");
-
-                              Intent actionIntent = new Intent(mContext, MainActivity.class);
-                              actionIntent.putExtra("notification_action", actCode);
-                              actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                              android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, (int)System.currentTimeMillis() + i, actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-                              builder.addAction(android.R.drawable.ic_menu_send, actTitle, pIntent);
+                          if (json.optBoolean("silent", false)) {
+                              builder.setPriority(NotificationCompat.PRIORITY_MIN);
                           }
-                      }
 
-                      if (json.has("delayMs")) {
-                          int delaySeconds = json.getInteger("delayMs") / 1000;
-                          mContext.scheduleNotification(title, message, delaySeconds);
-                          return;
-                      }
+                          if (json.optString("type", "").equals("custom")) {
+                              android.widget.RemoteViews remoteViews = new android.widget.RemoteViews(mContext.getPackageName(), R.layout.custom_notification);
+                              remoteViews.setImageViewResource(R.id.custom_icon, mContext.getApplicationInfo().icon);
+                              remoteViews.setTextViewText(R.id.custom_title, title);
+                              remoteViews.setTextViewText(R.id.custom_text, message);
+                              builder.setCustomContentView(remoteViews);
+                          }
 
-                      if (json.has("badgeCount")) {
-                          builder.setNumber(json.getInt("badgeCount"));
-                      }
+                          if (json.has("bigText")) {
+                              builder.setStyle(new NotificationCompat.BigTextStyle().bigText(json.getString("bigText")));
+                          }
 
-                      if (json.optBoolean("fullScreen", false)) {
-                          Intent fullScreenIntent = new Intent(mContext, MainActivity.class);
-                          android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
-                          builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                                  .setCategory(NotificationCompat.CATEGORY_CALL)
-                                  .setFullScreenIntent(pIntent, true);
-                      }
+                          if (json.has("bigPictureBase64")) {
+                              byte[] decodedString = Base64.decode(json.getString("bigPictureBase64"), Base64.DEFAULT);
+                              android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                              builder.setStyle(new NotificationCompat.BigPictureStyle().bigPicture(bitmap));
+                          }
 
-                      NotificationManagerCompat manager = NotificationManagerCompat.from(mContext);
-                      manager.notify(id, builder.build());
+                          if (json.has("inboxLines")) {
+                              org.json.JSONArray lines = json.getJSONArray("inboxLines");
+                              NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
+                              for (int i = 0; i < lines.length(); i++) {
+                                  inboxStyle.addLine(lines.getString(i));
+                              }
+                              builder.setStyle(inboxStyle);
+                          }
+
+                          if (json.has("progress") && json.has("maxProgress")) {
+                              int progress = json.getInt("progress");
+                              int max = json.getInt("maxProgress");
+                              builder.setProgress(max, progress, json.optBoolean("indeterminate", false));
+                          } else if (json.optBoolean("indeterminate", false)) {
+                              builder.setProgress(0, 0, true);
+                          }
+
+                          if (json.has("actions")) {
+                              org.json.JSONArray actions = json.getJSONArray("actions");
+                              for (int i = 0; i < actions.length(); i++) {
+                                  org.json.JSONObject act = actions.getJSONObject(i);
+                                  String actTitle = act.optString("title", "Action");
+                                  String actCode = act.optString("actionCode", "ACTION");
+
+                                  Intent actionIntent = new Intent(mContext, MainActivity.class);
+                                  actionIntent.putExtra("notification_action", actCode);
+                                  actionIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                  android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, (int)System.currentTimeMillis() + i, actionIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                                  builder.addAction(android.R.drawable.ic_menu_send, actTitle, pIntent);
+                              }
+                          }
+
+                          if (json.has("delayMs")) {
+                              int delaySeconds = json.optInt("delayMs", 0) / 1000;
+                              mContext.scheduleNotification(title, message, delaySeconds);
+                              return;
+                          }
+
+                          if (json.has("badgeCount")) {
+                              builder.setNumber(json.getInt("badgeCount"));
+                          }
+
+                          if (json.optBoolean("fullScreen", false)) {
+                              Intent fullScreenIntent = new Intent(mContext, MainActivity.class);
+                              android.app.PendingIntent pIntent = android.app.PendingIntent.getActivity(mContext, 0, fullScreenIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                              builder.setPriority(NotificationCompat.PRIORITY_MAX)
+                                      .setCategory(NotificationCompat.CATEGORY_CALL)
+                                      .setFullScreenIntent(pIntent, true);
+                          }
+
+                          NotificationManagerCompat manager = NotificationManagerCompat.from(mContext);
+                          manager.notify(id, builder.build());
 
                       } catch (Exception e) {
                           e.printStackTrace();
