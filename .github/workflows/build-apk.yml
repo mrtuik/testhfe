@@ -42,7 +42,6 @@ jobs:
           mkdir -p www
           unzip -o "${ZIP_NAME}" -d www/
           
-          # Checking where index.html is
           if [ ! -f www/index.html ] && [ ! -f www/index.php ]; then
               SUBDIR=$(find www/ -name "index.html" -o -name "index.php" -print -quit | sed 's|/index.html||' | sed 's|/index.php||')
               if [ -n "$SUBDIR" ]; then
@@ -52,15 +51,12 @@ jobs:
 
       - name: Initialize Capacitor 6 Project
         run: |
-          echo "Setting up Node environment & Capacitor..."
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
           
-          # Initialize Capacitor with user's App Name and Package ID
           npx cap init "$APP_NAME" "$PACKAGE_ID" --web-dir www
           npx cap add android
 
-          # Update capacitor.config.json for PHP server cleartext support
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "___PACKAGE_ID___",
@@ -76,20 +72,70 @@ jobs:
           sed -i "s/___PACKAGE_ID___/${PACKAGE_ID}/g" capacitor.config.json
           sed -i "s/___APP_NAME___/${APP_NAME}/g" capacitor.config.json
 
-      - name: Install Native Plugins (AdMob, Splash, Media)
+      - name: Generate App Icons
         run: |
-          # Installing core native plugins
+          npm install -g @capacitor/assets
+          mkdir -p assets
+          # Move user icons to standard path for generator
+          if [ -f "www/_app_icon.png" ]; then
+            cp www/_app_icon.png assets/icon.png
+          fi
+          if [ -f "www/_splash_icon.png" ]; then
+            cp www/_splash_icon.png assets/splash.png
+          else
+            cp assets/icon.png assets/splash.png || true
+          fi
+          # Automatically generate Android native icon resources
+          npx capacitor-assets generate --android || echo "Icon generation skipped, using default"
+
+      - name: Install Native Plugins
+        run: |
           npm install @capacitor/splash-screen @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar
-          
-          # Optional Plugins (These will be triggered by JS in your frontend)
-          npm install @capacitor-community/text-to-speech @capacitor-community/admob capacitor-music-controls-plugin
-          
-          # Sync plugins to Android
+          npm install @capacitor-community/text-to-speech @capacitor-community/admob
           npx cap sync android
+
+      - name: Configure Android Manifest & Permissions
+        run: |
+          python3 -c "
+          import json, os, re
+          
+          # Load App Config from Frontend
+          config = {}
+          if os.path.exists('www/app_config.json'):
+              with open('www/app_config.json', 'r') as f:
+                  config = json.load(f)
+          
+          # AdMob Configuration (Crucial to prevent crash)
+          admob_id = config.get('admobAppId', '').strip()
+          if not admob_id:
+              admob_id = 'ca-app-pub-3940256099942544~3347511713' # Google Test ID
+              
+          manifest_path = 'android/app/src/main/AndroidManifest.xml'
+          with open(manifest_path, 'r') as f:
+              manifest = f.read()
+              
+          meta_tag = f'<meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"{admob_id}\"/>'
+          if 'com.google.android.gms.ads.APPLICATION_ID' not in manifest:
+              manifest = manifest.replace('</application>', f'    {meta_tag}\n    </application>')
+              
+          # Essential Permissions for Background Tasks
+          perms = [
+              '<uses-permission android:name=\"android.permission.INTERNET\" />',
+              '<uses-permission android:name=\"android.permission.WAKE_LOCK\" />',
+              '<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />',
+              '<uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />',
+              '<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />'
+          ]
+          for p in perms:
+              if p not in manifest:
+                  manifest = manifest.replace('</manifest>', f'    {p}\n</manifest>')
+                  
+          with open(manifest_path, 'w') as f:
+              f.write(manifest)
+          "
 
       - name: Fetch PHP 8.4 Binary (PocketMine)
         run: |
-          echo "Downloading PocketMine PHP 8.4 static binary for Android arm64..."
           wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
           tar -xzf php.tar.gz
           
@@ -99,24 +145,19 @@ jobs:
 
       - name: Modify MainActivity for PHP Server
         run: |
-          # We inject a small code in Capacitor's MainActivity to start PHP
           MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java")
-          
-          # Python script to inject PHP server startup logic safely
-          cat << 'EOF' > inject_php.py
-          import sys
+          python3 -c "
+          import sys, re
           file_path = sys.argv[1]
           with open(file_path, 'r') as f:
               code = f.read()
           
-          import_statements = """
+          import_statements = '''
           import android.os.Bundle;
           import java.io.File;
-          import java.io.InputStreamReader;
-          import java.io.BufferedReader;
-          """
+          '''
           
-          php_logic = """
+          php_logic = '''
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -127,14 +168,13 @@ jobs:
                   new Thread(() -> {
                       try {
                           String nativeDir = getApplicationInfo().nativeLibraryDir;
-                          String phpBinary = nativeDir + "/libphp.so";
-                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + "/public";
+                          String phpBinary = nativeDir + \"/libphp.so\";
+                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + \"/public\";
                           
-                          // Capacitor copies 'www' to 'public' internally sometimes, or we serve directly
                           File binaryFile = new File(phpBinary);
                           if (binaryFile.exists()) binaryFile.setExecutable(true, false);
 
-                          ProcessBuilder pb = new ProcessBuilder(phpBinary, "-S", "127.0.0.1:8080", "-t", docRoot);
+                          ProcessBuilder pb = new ProcessBuilder(phpBinary, \"-S\", \"127.0.0.1:8080\", \"-t\", docRoot);
                           pb.redirectErrorStream(true);
                           Process phpProcess = pb.start();
                       } catch (Exception e) {
@@ -142,16 +182,14 @@ jobs:
                       }
                   }).start();
               }
-          """
+          '''
           
-          code = code.replace("import com.getcapacitor.BridgeActivity;", "import com.getcapacitor.BridgeActivity;\n" + import_statements)
-          code = code.replace("public class MainActivity extends BridgeActivity {}", "public class MainActivity extends BridgeActivity {\n" + php_logic + "\n}")
+          code = code.replace('import com.getcapacitor.BridgeActivity;', 'import com.getcapacitor.BridgeActivity;\\n' + import_statements)
+          code = re.sub(r'public class MainActivity extends BridgeActivity\s*\{.*?\}', 'public class MainActivity extends BridgeActivity {\\n' + php_logic + '\\n}', code, flags=re.DOTALL)
           
           with open(file_path, 'w') as f:
               f.write(code)
-          EOF
-          
-          python3 inject_php.py "$MAIN_ACTIVITY_PATH"
+          " "$MAIN_ACTIVITY_PATH"
 
       - name: Build Android APK
         run: |
