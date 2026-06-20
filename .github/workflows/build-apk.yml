@@ -31,190 +31,186 @@ jobs:
       - name: Setup Android SDK (Licenses Auto-Accept)
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          gradle-version: '8.2'
+          node-version: '20'
 
-      - name: Initialize Android Web-View Wrapper Template
+      - name: Fetch and Extract Web Assets
         run: |
-          echo "Initializing lightweight Gradle project structure..."
-          mkdir -p app/src/main/java/com/example/runner
-          mkdir -p app/src/main/assets
-          mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/layout
-          mkdir -p app/src/main/res/drawable
-          
-          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          
-          cat << 'EOF' > settings.gradle
-          rootProject.name = 'WebRunner'
-          include ':app'
-          EOF
-          
-          cat << 'EOF' > build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.0.2'
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
-
-      - name: Fetch and Wrap Website Archive ZIP
-        run: |
+          echo "Verifying local web workspace ZIP archive inside repository..."
           if [ ! -f "${ZIP_NAME}" ]; then
               echo "ERROR: ${ZIP_NAME} not found in repository!"
               exit 1
           fi
           
-          unzip -o "${ZIP_NAME}" -d app/src/main/assets/
+          echo "Extracting workspace targets deep into assets folder..."
+          mkdir -p www
+          unzip -o "${ZIP_NAME}" -d www/
           
-          if [ ! -f app/src/main/assets/index.html ]; then
-              SUBDIR=$(find app/src/main/assets/ -name "index.html" -print -quit | sed 's|/index.html||')
-              if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "app/src/main/assets" ]; then
-                  mv "$SUBDIR"/* app/src/main/assets/
+          if [ ! -f www/index.html ]; then
+              echo "index.html not found in assets root. Checking subdirectories..."
+              SUBDIR=$(find www/ -name "index.html" -print -quit | sed 's|/index.html||')
+              if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "www" ]; then
+                  echo "Found index.html in directory: $SUBDIR. Flattening contents..."
+                  mv "$SUBDIR"/* www/
+              else
+                  echo "WARNING: index.html not found in package payload!"
               fi
           fi
 
-      - name: Generate Native Android Code from app_config.json
+      - name: Setup Capacitor Project Automatically
+        run: |
+          echo "Creating automated dynamic Node configuration package.json..."
+          cat << 'EOF' > package.json
+          {
+            "name": "hopfile-compiled-app",
+            "version": "1.0.0",
+            "dependencies": {
+              "@capacitor/core": "^6.0.0",
+              "@capacitor/android": "^6.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^6.0.0"
+            }
+          }
+          EOF
+          
+          echo "Installing Capacitor core frameworks..."
+          npm install
+          
+          echo "Initializing Capacitor project mapping dynamically..."
+          npx cap init "${APP_NAME}" "${PACKAGE_ID}" --web-dir=www --noprompt
+          
+          echo "Injecting Android platform wrappers..."
+          npx cap add android
+
+      - name: Process Custom Assets & Apply Configs
         run: |
           sudo apt-get update && sudo apt-get install -y python3-pil
           
-          cat << 'EOF' > build_assets.py
-          import json, os, urllib.request
+          cat << 'EOF' > configure_capacitor.py
+          import json
+          import os
+          import urllib.request
           from PIL import Image
 
-          config_path = "app/src/main/assets/app_config.json"
+          config_path = "www/app_config.json"
           config = {}
           if os.path.exists(config_path):
               with open(config_path, "r") as f:
                   config = json.load(f)
 
+          # Extract configurations with fallbacks
+          app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
           version_name = config.get("versionName", os.environ.get("VERSION_NAME", "1.0.0"))
           version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
           theme_color = config.get("themeColor", "#4F46E5")
-          homepage = config.get("homepage", "index.html")
-          screen_rotation = config.get("screenRotation", "auto")
-          splash_bg_color = config.get("splashBgColor", "#111827")
-          splash_duration = int(config.get("splashDuration", 2000))
-          fullscreen_enabled = config.get("fullscreenEnabled", True)
-          hide_title_bar = config.get("hideTitleBar", True)
-          has_custom_splash = config.get("hasCustomSplash", False)
-          loading_ui_enabled = config.get("loadingUIEnabled", True)
-          swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
 
-          app_build_gradle = f"""
-          apply plugin: 'com.android.application'
-          android {{
-              namespace 'com.example.runner'
-              compileSdk 33
-              defaultConfig {{
-                  applicationId "{package_id}"
-                  minSdk 24
-                  targetSdk 33
-                  versionCode {version_code}
-                  versionName "{version_name}"
-              }}
-              buildTypes {{
-                  release {{
-                      minifyEnabled false
-                  }}
-              }}
-          }}
-          dependencies {{
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-          }}
-          """
-          with open("app/build.gradle", "w") as f: f.write(app_build_gradle)
-          
-          with open("app/src/main/res/values/colors.xml", "w") as f: f.write(f'<resources><color name="colorPrimary">{theme_color}</color><color name="splashBg">{splash_bg_color}</color></resources>')
-
-          theme_style_parent = "Theme.AppCompat.Light.NoActionBar" if hide_title_bar else "Theme.AppCompat.Light.DarkActionBar"
-          theme_items = "<item name=\\"android:windowFullscreen\\">true</item>" if fullscreen_enabled else ""
-          with open("app/src/main/res/values/styles.xml", "w") as f: f.write(f'<resources><style name="SplashTheme" parent="Theme.AppCompat.NoActionBar"><item name="android:windowBackground">@color/splashBg</item></style><style name="AppTheme" parent="{theme_style_parent}"><item name="colorPrimary">@color/colorPrimary</item>{theme_items}</style></resources>')
-
-          splash_src = "@drawable/splash_icon" if has_custom_splash else "@mipmap/ic_launcher"
-          with open("app/src/main/res/layout/activity_splash.xml", "w") as f: f.write(f'<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/splashBg"><ImageView android:layout_width="120dp" android:layout_height="120dp" android:layout_centerInParent="true" android:src="{splash_src}"/></RelativeLayout>')
-          
-          loading_bar = '<ProgressBar android:id="@+id/progressBar" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="3dp" android:layout_alignParentTop="true" android:visibility="gone" />' if loading_ui_enabled else ""
-          swipe_start = '<androidx.swiperefreshlayout.widget.SwipeRefreshLayout android:id="@+id/swipeRefreshLayout" android:layout_width="match_parent" android:layout_height="match_parent">' if swipe_refresh_enabled else ""
-          swipe_end = '</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>' if swipe_refresh_enabled else ""
-          with open("app/src/main/res/layout/activity_main.xml", "w") as f: f.write(f'<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">{loading_bar}{swipe_start}<WebView android:id="@+id/webview" android:layout_width="match_parent" android:layout_height="match_parent" />{swipe_end}</RelativeLayout>')
-          
-          orientation = "portrait" if screen_rotation == "portrait" else "landscape" if screen_rotation == "landscape" else "unspecified"
-          with open("app/src/main/AndroidManifest.xml", "w") as f: f.write(f'<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package_id}"><uses-permission android:name="android.permission.INTERNET"/><application android:usesCleartextTraffic="true" android:theme="@style/AppTheme" android:icon="@mipmap/ic_launcher" android:label="@string/app_name"><activity android:name=".SplashActivity" android:exported="true" android:theme="@style/SplashTheme" android:screenOrientation="{orientation}"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity><activity android:name=".MainActivity" android:screenOrientation="{orientation}"/></application></manifest>')
-          
-          with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f: f.write(f"package com.example.runner;\\nimport androidx.appcompat.app.AppCompatActivity;\\nimport android.content.Intent;\\nimport android.os.Bundle;\\nimport android.os.Handler;\\npublic class SplashActivity extends AppCompatActivity {{ @Override protected void onCreate(Bundle savedInstanceState) {{ super.onCreate(savedInstanceState); setContentView(R.layout.activity_splash); new Handler().postDelayed(() -> {{ startActivity(new Intent(this, MainActivity.class)); finish(); }}, {splash_duration}); }} }}")
-          
-          with open("app/src/main/java/com/example/runner/MainActivity.java", "w") as f: f.write(f"package com.example.runner;\\nimport androidx.appcompat.app.AppCompatActivity;\\nimport android.os.Bundle;\\nimport android.webkit.WebView;\\npublic class MainActivity extends AppCompatActivity {{ @Override protected void onCreate(Bundle savedInstanceState) {{ super.onCreate(savedInstanceState); setContentView(R.layout.activity_main); WebView webView = findViewById(R.id.webview); webView.getSettings().setJavaScriptEnabled(true); webView.loadUrl(\\\"file:///android_asset/{homepage}\\\"); }} }}")
-
-          icon_src = "app/src/main/assets/_app_icon.png"
+          # 1. Automatically scale and inject Launcher App Icon jodi custom logo thake
+          icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
-              sizes = [("mipmap-mdpi", 48), ("mipmap-hdpi", 72), ("mipmap-xhdpi", 96), ("mipmap-xxhdpi", 144), ("mipmap-xxxhdpi", 192)]
-              with Image.open(icon_src) as img:
-                  for folder, size in sizes:
-                      os.makedirs(f"app/src/main/res/{folder}", exist_ok=True)
-                      img.resize((size, size), Image.Resampling.LANCZOS).save(f"app/src/main/res/{folder}/ic_launcher.png")
-          
-          splash_img_src = "app/src/main/assets/_splash_icon.png"
-          if os.path.exists(splash_img_src):
-              os.makedirs("app/src/main/res/drawable", exist_ok=True)
-              with Image.open(splash_img_src) as img:
-                  img.resize((512, 512), Image.Resampling.LANCZOS).save("app/src/main/res/drawable/splash_icon.png")
+              print("Custom launcher icon found! Resizing into mipmaps...")
+              sizes = {
+                  "mipmap-mdpi": 48,
+                  "mipmap-hdpi": 72,
+                  "mipmap-xhdpi": 96,
+                  "mipmap-xxhdpi": 144,
+                  "mipmap-xxxhdpi": 192
+              }
+              try:
+                  with Image.open(icon_src) as img:
+                      for folder, size in sizes.items():
+                          dest_dir = f"android/app/src/main/res/{folder}"
+                          os.makedirs(dest_dir, exist_ok=True)
+                          resized_img = img.resize((size, size), Image.Resampling.LANCZOS)
+                          resized_img.save(f"{dest_dir}/ic_launcher.png")
+                          resized_img.save(f"{dest_dir}/ic_launcher_round.png")
+              except Exception as e:
+                  print(f"Error compiling launcher icon structures: {e}")
 
+          # 2. Automatically apply colors to native resource XML
+          colors_xml_path = "android/app/src/main/res/values/colors.xml"
+          if os.path.exists(colors_xml_path):
+              with open(colors_xml_path, "r") as f:
+                  colors_content = f.read()
+              # Append or modify theme colors
+              if "colorPrimary" in colors_content:
+                  colors_content = colors_content.replace("#4F46E5", theme_color)
+              with open(colors_xml_path, "w") as f:
+                  f.write(colors_content)
           EOF
-          python3 build_assets.py
+          python3 configure_capacitor.py
 
-      - name: Write strings.xml
+      - name: Sync Web Code into Capacitor Android
         run: |
-          echo '<resources><string name="app_name">${APP_NAME}</string></resources>' > app/src/main/res/values/strings.xml
+          npx cap sync android
 
-      - name: Run APK Compile Gradle Task
+      - name: Compile Debug APK
+        working-directory: android
         run: |
-          cd app
-          ../gradlew assembleDebug
+          ./gradlew assembleDebug
 
-      - name: Rename and Prepare Artifacts
+      - name: Map Output Structure to Legacy Paths
+        run: |
+          echo "Copying the compiled APK to the legacy path structure so HopFile frontend can retrieve it..."
+          mkdir -p app/build/outputs/apk/debug/
+          cp android/app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Package APK into ZIP and Rename
         run: |
           CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
-          mv app/build/outputs/apk/debug/app-debug.apk "app/${APK_NAME}"
+          ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
+          
+          # Create custom credits.txt file
+          cat << 'EOF' > app/build/outputs/apk/debug/credits.txt
+          ==================================================
+          HopFile Editor - Release Staging Package
+          ==================================================
+          This package was generated dynamically by HopFile Editor Workspace.
 
-      - name: Upload APK as a Workflow Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APP_NAME }}.apk
-          path: app/*.apk
-          retention-days: 7
+          Credits:
+          HopFile Editor is designed, developed, and maintained by tuik.
+          All rights reserved.
+
+          Thank you for choosing HopFile Editor as your Mobile IDE & Compiler!
+          ==================================================
+          EOF
+          
+          cd app/build/outputs/apk/debug/
+          mv app-debug.apk $APK_NAME
+          zip -r $ZIP_NAME $APK_NAME credits.txt
+
+      - name: Generate Unique Release Tag
+        id: tag_gen
+        run: |
+          CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
+          TAG="release-${CLEANED_NAME}-${{ github.run_number }}"
+          echo "TAG_NAME=$TAG" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "build-${{ github.run_number }}"
-          name: "Release ${{ env.APP_NAME }} v${{ env.VERSION_NAME }}"
-          body: "Automated Build"
-          files: app/*.apk
+          tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
+          name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
+          body: |
+            Automated Android package build for **${{ env.APP_NAME }}**
+            - **Package ID:** `${{ env.PACKAGE_ID }}`
+            - **Build ID:** `${{ github.run_number }}`
+          files: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*.zip
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Clean up temporary payload
+      - name: Clean up temporary payload zip from git
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git rm -f "${ZIP_NAME}" || true
-          git commit -m "chore: clean up temporary payload [skip ci]" || true
+          git commit -m "chore: clean up temporary build payload [skip ci]" || true
           git push origin main || git push origin master || true
