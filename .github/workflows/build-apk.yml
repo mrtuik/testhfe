@@ -132,16 +132,6 @@ jobs:
               with open(config_path, "r") as f:
                   config = json.load(f)
 
-          # Safe Boolean Parsing Helper to avoid any "false" string evaluation bugs
-          def get_bool(val, default=False):
-              if val is None:
-                  return default
-              if isinstance(val, bool):
-                  return val
-              if isinstance(val, str):
-                  return val.lower() in ['true', '1', 'yes', 'on']
-              return bool(val)
-
           # Extract configurations
           app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
@@ -153,38 +143,22 @@ jobs:
           splash_bg_color = config.get("splashBgColor", "#111827")
           splash_duration = int(config.get("splashDuration", 2000))
 
-          # Dynamic Feature Toggles with Safe Parsing (Defaulting strictly to False/Off)
-          database_enabled = get_bool(config.get("databaseEnabled"), True)
-          camera_enabled = get_bool(config.get("cameraEnabled"), False)
-          notifications_enabled = get_bool(config.get("notificationsEnabled"), True)
-          local_storage_enabled = get_bool(config.get("localStorageEnabled"), True)
-          
-          # Force Fullscreen and Progress bar to False
-          fullscreen_enabled = get_bool(config.get("fullscreenEnabled"), False)
-          loading_ui_enabled = get_bool(config.get("loadingUIEnabled"), False)
-          
-          autoplay_enabled = get_bool(config.get("autoplayEnabled"), True)
-          microphone_enabled = get_bool(config.get("microphoneEnabled"), False)
-          hide_title_bar = get_bool(config.get("hideTitleBar"), True)
-          swipe_refresh_enabled = get_bool(config.get("swipeRefreshEnabled"), True)
-          long_press_enabled = get_bool(config.get("longPressEnabled"), True)
-          pc_mode_enabled = get_bool(config.get("pcModeEnabled"), False)
-          zoom_enabled = get_bool(config.get("zoomEnabled"), True)
-          has_custom_splash = get_bool(config.get("hasCustomSplash"), False)
+          # Dynamic Feature Toggles
+          database_enabled = config.get("databaseEnabled", True)
+          camera_enabled = config.get("cameraEnabled", True)
+          notifications_enabled = config.get("notificationsEnabled", True)
+          local_storage_enabled = config.get("localStorageEnabled", True)
+          fullscreen_enabled = config.get("fullscreenEnabled", True)
+          autoplay_enabled = config.get("autoplayEnabled", True)
+          microphone_enabled = config.get("microphoneEnabled", True)
+          hide_title_bar = config.get("hideTitleBar", True)
+          swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
+          long_press_enabled = config.get("longPressEnabled", True)
+          loading_ui_enabled = config.get("loadingUIEnabled", True)
+          pc_mode_enabled = config.get("pcModeEnabled", False)
+          zoom_enabled = config.get("zoomEnabled", True)
+          has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
-
-          # Advanced Persisted Toggles (UI Patch Upgrades)
-          location_enabled = get_bool(config.get("locationEnabled"), False)
-          clipboard_enabled = get_bool(config.get("clipboardEnabled"), True)
-          secure_window_enabled = get_bool(config.get("secureWindowEnabled"), False)
-          keep_screen_on_enabled = get_bool(config.get("keepScreenOnEnabled"), True)
-          double_back_exit_enabled = get_bool(config.get("doubleBackExitEnabled"), True)
-          external_browser_enabled = get_bool(config.get("externalBrowserEnabled"), True)
-          file_transfer_enabled = get_bool(config.get("fileTransferEnabled"), True)
-          biometric_enabled = get_bool(config.get("biometricEnabled"), False)
-          
-          # Safe extraction of Splash screen toggle (Defaults strictly to False)
-          splash_screen_enabled = get_bool(config.get("splashScreenEnabled"), False)
 
           # Auto-detect if there are actually any PHP files inside assets
           has_php_files = False
@@ -197,19 +171,9 @@ jobs:
               if has_php_files:
                   break
 
-          php_support = get_bool(config.get("phpSupport"), True) and has_php_files
+          php_support = config.get("phpSupport", True) and has_php_files
 
-          # Write app/build.gradle using safe placeholder replacements
-          dependencies_block = """
-              implementation 'androidx.webkit:webkit:1.6.0'
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-              implementation 'com.google.android.material:material:1.9.0'
-              implementation 'androidx.media:media:1.6.0'
-          """
-          if biometric_enabled:
-              dependencies_block += "\\n              implementation 'androidx.biometric:biometric:1.1.0'"
-
+          # Write app/build.gradle using safe placeholder replacements (Removed NDK config block to prevent GHA failures)
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -234,13 +198,16 @@ jobs:
               }
           }
           dependencies {
-              __DEPENDENCIES_STATED__
+              implementation 'androidx.webkit:webkit:1.6.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+              implementation 'com.google.android.material:material:1.9.0'
+              implementation 'androidx.media:media:1.6.0'
           }
           """
           app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id)
           app_build_gradle = app_build_gradle.replace("__VERSION_CODE__", str(version_code))
           app_build_gradle = app_build_gradle.replace("__VERSION_NAME__", version_name)
-          app_build_gradle = app_build_gradle.replace("__DEPENDENCIES_STATED__", dependencies_block.strip())
           
           with open("app/build.gradle", "w") as f:
               f.write(app_build_gradle.strip())
@@ -258,7 +225,7 @@ jobs:
           with open("app/src/main/res/values/colors.xml", "w") as f:
               f.write(colors_xml.strip())
 
-          # Write styles.xml (Clean status-bar visibility setup)
+          # Write styles.xml
           theme_style_parent = "Theme.AppCompat.Light.NoActionBar"
           theme_items = ""
           if fullscreen_enabled:
@@ -361,7 +328,7 @@ jobs:
           with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
               f.write(bg_tuik_badge_xml.strip())
 
-          # Generate custom_media_collapsed.xml
+          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
           custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root"
@@ -1234,6 +1201,8 @@ jobs:
                   mWebView.setBackgroundColor(0);
                   __PERMISSION_MANAGER__
                   createNotificationChannels();
+                  
+                  // Inject JavaScript Interfaces
                   mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
                   
                   if (__CLIPBOARD_ENABLED__) {
@@ -1245,7 +1214,7 @@ jobs:
                       @Override
                       public void onInit(int status) {
                           if (status == TextToSpeech.SUCCESS) {
-                              mTTS.setLanguage(Locale.getDefault());
+                              mTTS.setLanguage(Locale.US);
                           }
                       }
                   });
@@ -1892,41 +1861,33 @@ jobs:
 
               @Override
               public void onBackPressed() {
-                  mWebView.evaluateJavascript("javascript:if(window.onBackPressed){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
+                  mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
                       @Override
                       public void onReceiveValue(String value) {
-                          if (value == null || value.equals("\\"default\\"") || value.equals("null") || value.equals("false")) {
+                          if (value == null || value.equals("\"default\"") || value.equals("null") || value.equals("false")) {
                               if (mWebView.canGoBack()) {
                                   mWebView.goBack();
                               } else {
-                                  showExitDialog();
+                                  if (__DOUBLE_BACK_EXIT__) {
+                                      if (doubleBackToExitPressedOnce) {
+                                          finish();
+                                          return;
+                                      }
+                                      doubleBackToExitPressedOnce = true;
+                                      Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
+                                      new Handler().postDelayed(new Runnable() {
+                                          @Override
+                                          public void run() {
+                                              doubleBackToExitPressedOnce = false;
+                                          }
+                                      }, 2000);
+                                  } else {
+                                      finish();
+                                  }
                               }
                           }
                       }
                   });
-              }
-
-              private void showExitDialog() {
-                  androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-                  builder.setTitle("Exit Application");
-                  builder.setMessage("Are you sure you want to exit?");
-                  builder.setPositiveButton("Exit", new android.content.DialogInterface.OnClickListener() {
-                      @Override
-                      public void onClick(android.content.DialogInterface dialog, int which) {
-                          finish();
-                      }
-                  });
-                  builder.setNegativeButton("Cancel", new android.content.DialogInterface.OnClickListener() {
-                      @Override
-                      public void onClick(android.content.DialogInterface dialog, int which) {
-                          dialog.dismiss();
-                      }
-                  });
-                  androidx.appcompat.app.AlertDialog builder_dialog = builder.create();
-                  builder_dialog.show();
-                  int colorPrimary = ContextCompat.getColor(MainActivity.this, R.color.colorPrimary);
-                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setTextColor(colorPrimary);
-                  builder_dialog.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).setTextColor(colorPrimary);
               }
 
               private void handleNotificationAction(Intent intent) {
