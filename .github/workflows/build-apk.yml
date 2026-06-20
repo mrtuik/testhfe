@@ -132,7 +132,7 @@ jobs:
               with open(config_path, "r") as f:
                   config = json.load(f)
 
-          # Extract configurations with secure fallbacks
+          # Extract configurations with secure fallback conversions
           app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
           version_name = config.get("versionName", os.environ.get("VERSION_NAME", "1.0.0"))
@@ -175,7 +175,7 @@ jobs:
           except Exception:
               php_port = 8080
 
-          # Advanced properties missing in previous build script version
+          # Missing configuration elements read from app_config.json
           file_transfer_enabled = config.get("fileTransferEnabled", True)
           location_enabled = config.get("locationEnabled", True)
           biometric_enabled = config.get("biometricEnabled", False)
@@ -186,7 +186,7 @@ jobs:
           double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
           clipboard_enabled = config.get("clipboardEnabled", True)
 
-          # Confirm if custom splash actually exists physically on disk
+          # Safely confirm if custom splash is physically ready in the workspace
           has_custom_splash = config.get("hasCustomSplash", False) and os.path.exists("app/src/main/assets/_splash_icon.png")
 
           # Auto-detect if there are actually any PHP files inside assets
@@ -826,6 +826,7 @@ jobs:
               import android.content.Intent;
               import android.os.Bundle;
               import android.os.Handler;
+              import android.os.Looper;
 
               public class SplashActivity extends AppCompatActivity {
                   @Override
@@ -833,7 +834,7 @@ jobs:
                       super.onCreate(savedInstanceState);
                       setContentView(R.layout.activity_splash);
                       
-                      new Handler().postDelayed(new Runnable() {
+                      new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                           @Override
                           public void run() {
                               Intent intent = new Intent(SplashActivity.this, MainActivity.class);
@@ -982,6 +983,8 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
+          import android.os.Handler;
+          import android.os.Looper;
           import android.view.View;
           import android.view.Window;
           import android.view.WindowManager;
@@ -1907,7 +1910,7 @@ jobs:
                                       }
                                       doubleBackToExitPressedOnce = true;
                                       Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
-                                      new Handler().postDelayed(new Runnable() {
+                                      new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                                           @Override
                                           public void run() {
                                               doubleBackToExitPressedOnce = false;
@@ -2017,7 +2020,7 @@ jobs:
                                       public void onEvent(int eventType, Bundle params) {}
                                   });
                               }
-                              Intent intent = new Intent(RecognizerIntent.ACTION_RECOGGE_SPEECH);
+                              Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
                               intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
                               intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
                               mContext.mSpeechRecognizer.startListening(intent);
