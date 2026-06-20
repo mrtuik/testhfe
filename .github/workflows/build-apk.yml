@@ -118,7 +118,7 @@ jobs:
           echo "Injecting Android platform wrappers..."
           npx cap add android
 
-      - name: Process Custom Assets & Merge Native Configs
+      - name: Process Custom Assets, Fix Namespaces & Patch Configs
         run: |
           sudo apt-get update && sudo apt-get install -y python3-pil
           
@@ -127,20 +127,21 @@ jobs:
           import os
           from PIL import Image
 
+          # --------------------------------------------------
+          # SECTION 1: LOAD METADATA & GENERATE APP ICONS
+          # --------------------------------------------------
           config_path = "www/app_config.json"
           config = {}
           if os.path.exists(config_path):
               with open(config_path, "r") as f:
                   config = json.load(f)
 
-          # Extract configurations with fallbacks
           app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
           package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
           version_name = config.get("versionName", os.environ.get("VERSION_NAME", "1.0.0"))
           version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
           theme_color = config.get("themeColor", "#4F46E5")
 
-          # 1. Scaling mipmap standard launcher icons dynamically if icon provided
           icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
               print("Custom launcher icon found! Resizing into mipmaps...")
@@ -162,13 +163,24 @@ jobs:
               except Exception as e:
                   print(f"Error compiling launcher icon structures: {e}")
 
-          # 2. Programmatically edit AndroidManifest.xml safely to allow local cleartext requests and all native features
+          # --------------------------------------------------
+          # SECTION 2: AUTO-MERGE GRADLE 8+ NAMESPACE FALLBACK
+          # --------------------------------------------------
+          root_gradle_path = "android/build.gradle"
+          if os.path.exists(root_gradle_path):
+              print("Applying top-level Gradle fallback namespace injections to fix older plugin compilation...")
+              with open(root_gradle_path, "a", encoding="utf-8") as f:
+                  f.write("\n\nsubprojects {\n    afterEvaluate { project ->\n        if (project.hasProperty('android')) {\n            project.android {\n                if (namespace == null) {\n                    namespace project.group\n                }\n            }\n        }\n    }\n}\n")
+
+          # --------------------------------------------------
+          # SECTION 3: INJECT PERMISSIONS & ADMOB METADATA
+          # --------------------------------------------------
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           if os.path.exists(manifest_path):
+              print("Injecting permissions & usesCleartextTraffic configurations to allow local APIs & PHP connections...")
               with open(manifest_path, "r", encoding="utf-8") as f:
                   content = f.read()
 
-              # Define native feature permissions to merge
               permissions = [
                   '<uses-permission android:name="android.permission.INTERNET" />',
                   '<uses-permission android:name="android.permission.CAMERA" />',
@@ -181,16 +193,13 @@ jobs:
                   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />'
               ]
 
-              # Merge permissions before <application block
               perm_string = "\n    ".join(permissions)
               if "<application" in content:
                   content = content.replace("<application", perm_string + "\n    <application")
 
-              # Extract AdMob App ID or assign sample testing App ID to prevent runtime compilation crash
               admob_id = config.get("admobAppId", "ca-app-pub-3940256099942544~3347511713") or "ca-app-pub-3940256099942544~3347511713"
               admob_meta = f'<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_id}" />'
               
-              # Enable cleartext traffic allowances for local HTTP mock backend queries (PHP servers fallback logic)
               if "android:usesCleartextTraffic=" not in content:
                   content = content.replace("<application", '<application android:usesCleartextTraffic="true"')
                   
@@ -200,7 +209,28 @@ jobs:
               with open(manifest_path, "w", encoding="utf-8") as f:
                   f.write(content)
 
-          # 3. Apply color profiles to resources
+          # --------------------------------------------------
+          # SECTION 4: PATCH OLD DEPRECATED PROGUARD RULES
+          # --------------------------------------------------
+          print("Walking through active node_modules and patching old ProGuard rules...")
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file in ["build.gradle", "build.gradle.kts"]:
+                      filepath = os.path.join(root, file)
+                      try:
+                          with open(filepath, "r", encoding="utf-8") as f:
+                              text = f.read()
+                          if "proguard-android.txt" in text:
+                              text = text.replace("proguard-android.txt", "proguard-android-optimize.txt")
+                              with open(filepath, "w", encoding="utf-8") as f:
+                                  f.write(text)
+                              print(f"Patched obsolete ProGuard references in: {filepath}")
+                      except Exception:
+                          pass
+
+          # --------------------------------------------------
+          # SECTION 5: APPLY CUSTOM COLOR THEMES
+          # --------------------------------------------------
           colors_xml_path = "android/app/src/main/res/values/colors.xml"
           if os.path.exists(colors_xml_path):
               with open(colors_xml_path, "r") as f:
