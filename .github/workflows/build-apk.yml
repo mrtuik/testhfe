@@ -148,13 +148,19 @@ jobs:
           camera_enabled = config.get("cameraEnabled", True)
           notifications_enabled = config.get("notificationsEnabled", True)
           local_storage_enabled = config.get("localStorageEnabled", True)
-          fullscreen_enabled = config.get("fullscreenEnabled", True)
+          
+          # Fixed to False to prevent fullscreen hiding the top Status Bar
+          fullscreen_enabled = config.get("fullscreenEnabled", False)
+          
           autoplay_enabled = config.get("autoplayEnabled", True)
           microphone_enabled = config.get("microphoneEnabled", True)
           hide_title_bar = config.get("hideTitleBar", True)
           swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
           long_press_enabled = config.get("longPressEnabled", True)
-          loading_ui_enabled = config.get("loadingUIEnabled", True)
+          
+          # Fixed to False to remove native loading progress bar
+          loading_ui_enabled = config.get("loadingUIEnabled", False)
+          
           pc_mode_enabled = config.get("pcModeEnabled", False)
           zoom_enabled = config.get("zoomEnabled", True)
           has_custom_splash = config.get("hasCustomSplash", False)
@@ -193,7 +199,7 @@ jobs:
               implementation 'androidx.media:media:1.6.0'
           """
           if biometric_enabled:
-              dependencies_block += "\n              implementation 'androidx.biometric:biometric:1.1.0'"
+              dependencies_block += "\\n              implementation 'androidx.biometric:biometric:1.1.0'"
 
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
@@ -240,6 +246,9 @@ jobs:
           </resources>
           """
           colors_xml = colors_xml_template.replace("__THEME_COLOR__", theme_color).replace("__SPLASH_BG_COLOR__", splash_bg_color)
+          with open("app/src/main/res/values/colors.xml", "f") as f:
+              f.write(colors_xml.strip()) if not os.path.exists("app/src/main/res/values/colors.xml") else None
+          # Force overwrite
           with open("app/src/main/res/values/colors.xml", "w") as f:
               f.write(colors_xml.strip())
 
@@ -346,7 +355,7 @@ jobs:
           with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
               f.write(bg_tuik_badge_xml.strip())
 
-          # Generate custom_media_collapsed.xml
+          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
           custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root"
@@ -2399,7 +2408,7 @@ jobs:
 
                       NotificationCompat.Builder builder;
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          builder = new NotificationCompat.Builder(this, "foreground_tasks");
+                          builder = new NotificationCompat.Builder(this, "media_channel");
                       } else {
                           builder = new NotificationCompat.Builder(this);
                       }
