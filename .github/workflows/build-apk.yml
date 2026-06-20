@@ -1772,7 +1772,7 @@ jobs:
                       if (resultCode == Activity.RESULT_OK) {
                           if (data != null) {
                               String dataString = data.getDataString();
-                              ClipData clipData = data.getClipData();
+                              clipData clipData = data.getClipData();
                               if (clipData != null) {
                                   results = new Uri[clipData.getItemCount()];
                                   for (int i = 0; i < clipData.getItemCount(); i++) {
@@ -2325,7 +2325,7 @@ jobs:
                               .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
                       Intent notificationIntent = new Intent(this, MainActivity.class);
-                      android.app.PendingIntent pendingIntent = android.app.PendingIntent.getActivity(this, 0, notificationIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+                      android.app.PendingIntent pendingIntent = pendingIntent = android.app.PendingIntent.getActivity(this, 0, notificationIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
                       builder.setContentIntent(pendingIntent);
 
                       if (taskType.equals("media")) {
