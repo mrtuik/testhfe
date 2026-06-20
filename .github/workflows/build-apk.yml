@@ -118,7 +118,7 @@ jobs:
 
       - name: Generate Native Android Code from app_config.json
         run: |
-          sudo apt-get update && sudo apt-get install -y python3-pil
+          python3 -m pip install Pillow
           
           cat << 'EOF' > build_assets.py
           import json
@@ -160,6 +160,17 @@ jobs:
           has_custom_splash = config.get("hasCustomSplash", False)
           php_port = int(config.get("phpPort", 8080))
 
+          # Advanced Persisted Toggles (UI Patch Upgrades)
+          location_enabled = config.get("locationEnabled", False)
+          clipboard_enabled = config.get("clipboardEnabled", True)
+          secure_window_enabled = config.get("secureWindowEnabled", False)
+          keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
+          double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
+          external_browser_enabled = config.get("externalBrowserEnabled", True)
+          file_transfer_enabled = config.get("fileTransferEnabled", True)
+          biometric_enabled = config.get("biometricEnabled", False)
+          splash_screen_enabled = config.get("splashScreenEnabled", False)
+
           # Auto-detect if there are actually any PHP files inside assets
           has_php_files = False
           assets_dir = "app/src/main/assets"
@@ -173,7 +184,17 @@ jobs:
 
           php_support = config.get("phpSupport", True) and has_php_files
 
-          # Write app/build.gradle using safe placeholder replacements (Removed NDK config block to prevent GHA failures)
+          # Write app/build.gradle using safe placeholder replacements
+          dependencies_block = """
+              implementation 'androidx.webkit:webkit:1.6.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+              implementation 'com.google.android.material:material:1.9.0'
+              implementation 'androidx.media:media:1.6.0'
+          """
+          if biometric_enabled:
+              dependencies_block += "\n              implementation 'androidx.biometric:biometric:1.1.0'"
+
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -198,16 +219,13 @@ jobs:
               }
           }
           dependencies {
-              implementation 'androidx.webkit:webkit:1.6.0'
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-              implementation 'com.google.android.material:material:1.9.0'
-              implementation 'androidx.media:media:1.6.0'
+              __DEPENDENCIES_STATED__
           }
           """
           app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id)
           app_build_gradle = app_build_gradle.replace("__VERSION_CODE__", str(version_code))
           app_build_gradle = app_build_gradle.replace("__VERSION_NAME__", version_name)
+          app_build_gradle = app_build_gradle.replace("__DEPENDENCIES_STATED__", dependencies_block.strip())
           
           with open("app/build.gradle", "w") as f:
               f.write(app_build_gradle.strip())
@@ -328,7 +346,7 @@ jobs:
           with open("app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
               f.write(bg_tuik_badge_xml.strip())
 
-          # Generate custom_media_collapsed.xml (Fixed getButton XML Tag Typo to TextView)
+          # Generate custom_media_collapsed.xml
           custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root"
@@ -672,13 +690,13 @@ jobs:
           with open("app/src/main/res/layout/activity_main.xml", "w") as f:
               f.write(activity_main_xml.strip())
 
-          # Handle Advanced Android Permissions (Completely Removed Location Permissions)
+          # Handle Advanced Android Permissions
           camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
           audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
           notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
           
           storage_p = ""
-          if local_storage_enabled:
+          if local_storage_enabled or file_transfer_enabled:
               storage_p = """
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -686,6 +704,17 @@ jobs:
               <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
               <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
               """
+              
+          location_p = ""
+          if location_enabled:
+              location_p = """
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              """
+              
+          biometric_p = ""
+          if biometric_enabled:
+              biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />'
 
           # Rotation preference mapping
           orientation_mode = "unspecified"
@@ -694,27 +723,9 @@ jobs:
           elif screen_rotation == "landscape":
               orientation_mode = "landscape"
 
-          # Write AndroidManifest.xml (Enhanced with extractNativeLibs="true" & hardwareAccelerated="true" for YouTube encoding support)
-          android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              __CAMERA_PERMISSION_MANIFEST__
-              __AUDIO_PERMISSION_MANIFEST__
-              __NOTIFICATION_PERMISSION_MANIFEST__
-              __STORAGE_PERMISSION_MANIFEST__
-              
-              <application
-                  android:allowBackup="true"
-                  android:label="@string/app_name"
-                  android:icon="@mipmap/ic_launcher"
-                  android:roundIcon="@mipmap/ic_launcher"
-                  android:supportsRtl="true"
-                  android:usesCleartextTraffic="true"
-                  android:extractNativeLibs="true"
-                  android:hardwareAccelerated="true"
-                  android:theme="@style/AppTheme">
-                  
+          # Write AndroidManifest.xml (Dynamic Activities Launcher Setup)
+          if splash_screen_enabled:
+              activities_manifest = """
                   <activity
                       android:name="com.example.runner.SplashActivity"
                       android:exported="true"
@@ -735,6 +746,47 @@ jobs:
                       android:hardwareAccelerated="true"
                       android:screenOrientation="__ORIENTATION_MODE__">
                   </activity>
+              """
+          else:
+              activities_manifest = """
+                  <activity
+                      android:name="com.example.runner.MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:hardwareAccelerated="true"
+                      android:theme="@style/AppTheme"
+                      android:screenOrientation="__ORIENTATION_MODE__">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              """
+
+          android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              __CAMERA_PERMISSION_MANIFEST__
+              __AUDIO_PERMISSION_MANIFEST__
+              __NOTIFICATION_PERMISSION_MANIFEST__
+              __STORAGE_PERMISSION_MANIFEST__
+              __LOCATION_PERMISSION_MANIFEST__
+              __BIOMETRIC_PERMISSION_MANIFEST__
+              
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="true"
+                  android:extractNativeLibs="true"
+                  android:hardwareAccelerated="true"
+                  android:theme="@style/AppTheme">
+                  
+                  __ACTIVITIES_STAGED__
 
                   <receiver android:name="com.example.runner.MainActivity$NotificationReceiver" android:exported="false" />
                   <service android:name="com.example.runner.MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
@@ -745,38 +797,42 @@ jobs:
           android_manifest_xml = android_manifest_xml.replace("__AUDIO_PERMISSION_MANIFEST__", audio_p)
           android_manifest_xml = android_manifest_xml.replace("__NOTIFICATION_PERMISSION_MANIFEST__", notif_p)
           android_manifest_xml = android_manifest_xml.replace("__STORAGE_PERMISSION_MANIFEST__", storage_p)
+          android_manifest_xml = android_manifest_xml.replace("__LOCATION_PERMISSION_MANIFEST__", location_p)
+          android_manifest_xml = android_manifest_xml.replace("__BIOMETRIC_PERMISSION_MANIFEST__", biometric_p)
+          android_manifest_xml = android_manifest_xml.replace("__ACTIVITIES_STAGED__", activities_manifest)
           android_manifest_xml = android_manifest_xml.replace("__ORIENTATION_MODE__", orientation_mode)
           
           with open("app/src/main/AndroidManifest.xml", "w") as f:
               f.write(android_manifest_xml.strip())
 
-          # Write SplashActivity.java
-          splash_activity_java_template = """package com.example.runner;
-          import androidx.appcompat.app.AppCompatActivity;
-          import android.content.Intent;
-          import android.os.Bundle;
-          import android.os.Handler;
+          # Write SplashActivity.java (Only written if splash screen is enabled)
+          if splash_screen_enabled:
+              splash_activity_java_template = """package com.example.runner;
+              import androidx.appcompat.app.AppCompatActivity;
+              import android.content.Intent;
+              import android.os.Bundle;
+              import android.os.Handler;
 
-          public class SplashActivity extends AppCompatActivity {
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  setContentView(R.layout.activity_splash);
-                  
-                  new Handler().postDelayed(new Runnable() {
-                      @Override
-                      public void run() {
-                          Intent intent = new Intent(SplashActivity.this, MainActivity.class);
-                          startActivity(intent);
-                          finish();
-                      }
-                  }, __SPLASH_DURATION__);
+              public class SplashActivity extends AppCompatActivity {
+                  @Override
+                  protected void onCreate(Bundle savedInstanceState) {
+                      super.onCreate(savedInstanceState);
+                      setContentView(R.layout.activity_splash);
+                      
+                      new Handler().postDelayed(new Runnable() {
+                          @Override
+                          public void run() {
+                              Intent intent = new Intent(SplashActivity.this, MainActivity.class);
+                              startActivity(intent);
+                              finish();
+                          }
+                      }, __SPLASH_DURATION__);
+                  }
               }
-          }
-          """
-          splash_activity_java = splash_activity_java_template.replace("__SPLASH_DURATION__", str(splash_duration))
-          with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f:
-              f.write(splash_activity_java.strip())
+              """
+              splash_activity_java = splash_activity_java_template.replace("__SPLASH_DURATION__", str(splash_duration))
+              with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f:
+                  f.write(splash_activity_java.strip())
 
           # Generate MainActivity.java with Fixed Context Import & WebView Connection Retry Loop on startup
           swipe_import_block = "import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;" if swipe_refresh_enabled else ""
@@ -840,26 +896,28 @@ jobs:
               });
                   mWebView.setLongClickable(false);"""
 
-          download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
-              @Override
-              public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-                  if (url.startsWith("blob:") || url.startsWith("data:")) {
-                      return;
+          download_manager_block = ""
+          if file_transfer_enabled:
+              download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
+                  @Override
+                  public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                      if (url.startsWith("blob:") || url.startsWith("data:")) {
+                          return;
+                      }
+                      DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                      request.setMimeType(mimetype);
+                      String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+                      request.setTitle(fileName);
+                      request.setDescription("Downloading target assets...");
+                      request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                      DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                      if (dm != null) {
+                          dm.enqueue(request);
+                          Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                      }
                   }
-                  DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                  request.setMimeType(mimetype);
-                  String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
-                  request.setTitle(fileName);
-                  request.setDescription("Downloading target assets...");
-                  request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                  request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-                  DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                  if (dm != null) {
-                      dm.enqueue(request);
-                      Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
-                  }
-              }
-          });"""
+              });"""
 
           permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -875,6 +933,9 @@ jobs:
               permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
           if local_storage_enabled:
               permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
+          if location_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
 
           permission_manager_block += """
           if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -909,6 +970,7 @@ jobs:
           import android.os.Environment;
           import android.view.View;
           import android.view.Window;
+          import android.view.WindowManager;
           import android.webkit.DownloadListener;
           import android.webkit.PermissionRequest;
           import android.webkit.URLUtil;
@@ -945,6 +1007,7 @@ jobs:
           import android.support.v4.media.MediaMetadataCompat;
           import java.util.ArrayList;
           import java.util.Locale;
+          __BIOMETRIC_IMPORTS__
           __SWIPE_IMPORT__
 
           public class MainActivity extends AppCompatActivity {
@@ -955,6 +1018,7 @@ jobs:
               Process phpProcess;
               TextToSpeech mTTS;
               SpeechRecognizer mSpeechRecognizer;
+              private boolean doubleBackToExitPressedOnce = false;
               __SWIPE_DECLARATION__
               __PROGRESS_DECLARATION__
 
@@ -993,6 +1057,17 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  
+                  // Keep Screen On Toggle Check
+                  if (__KEEP_SCREEN_ON__) {
+                      getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  }
+                  
+                  // Secure Window Toggle Check
+                  if (__SECURE_WINDOW__) {
+                      getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+                  }
+
                   setContentView(R.layout.activity_main);
                   sInstance = this;
 
@@ -1001,7 +1076,7 @@ jobs:
 
                   WebSettings webSettings = mWebView.getSettings();
                   webSettings.setJavaScriptEnabled(true);
-                  webSettings.setGeolocationEnabled(false);
+                  webSettings.setGeolocationEnabled(__GEOLOCATION_ENABLED__);
                   webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   __LOCAL_STORAGE__
                   __ZOOM__
@@ -1048,6 +1123,19 @@ jobs:
                               } catch (Exception e) {
                                   e.printStackTrace();
                                   return false;
+                              }
+                          }
+
+                          // External Link Handler Toggle Check
+                          if (__EXTERNAL_BROWSER_ENABLED__) {
+                              if (!url.startsWith("http://127.0.0.1") && !url.startsWith("https://appassets.androidplatform.net")) {
+                                  try {
+                                      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                                      startActivity(intent);
+                                      return true;
+                                  } catch (Exception e) {
+                                      e.printStackTrace();
+                                  }
                               }
                           }
                           return false;
@@ -1105,6 +1193,9 @@ jobs:
                       }
                       @Override
                       public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams) {
+                          if (!__FILE_TRANSFER_ENABLED__) {
+                              return false;
+                          }
                           if (mUploadMessage != null) {
                               mUploadMessage.onReceiveValue(null);
                           }
@@ -1129,7 +1220,10 @@ jobs:
                   __PERMISSION_MANAGER__
                   createNotificationChannels();
                   mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
-                  mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
+                  
+                  if (__CLIPBOARD_ENABLED__) {
+                      mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
+                  }
                   
                   // Initialize TTS Engine natively
                   mTTS = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
@@ -1151,6 +1245,7 @@ jobs:
                       mWebView.loadUrl("https://appassets.androidplatform.net/assets/__HOMEPAGE__");
                   }
 
+                  __BIOMETRIC_INIT_LOGIC__
                   handleNotificationAction(getIntent());
               }
 
@@ -2559,6 +2654,62 @@ jobs:
           main_activity_java = main_activity_java.replace("__PERMISSION_MANAGER__", permission_manager_block)
           main_activity_java = main_activity_java.replace("__HOMEPAGE__", homepage)
 
+          # Advanced features template placeholders mapping
+          main_activity_java = main_activity_java.replace("__KEEP_SCREEN_ON__", "true" if keep_screen_on_enabled else "false")
+          main_activity_java = main_activity_java.replace("__SECURE_WINDOW__", "true" if secure_window_enabled else "false")
+          main_activity_java = main_activity_java.replace("__GEOLOCATION_ENABLED__", "true" if location_enabled else "false")
+          main_activity_java = main_activity_java.replace("__EXTERNAL_BROWSER_ENABLED__", "true" if external_browser_enabled else "false")
+          main_activity_java = main_activity_java.replace("__FILE_TRANSFER_ENABLED__", "true" if file_transfer_enabled else "false")
+          main_activity_java = main_activity_java.replace("__CLIPBOARD_ENABLED__", "true" if clipboard_enabled else "false")
+          main_activity_java = main_activity_java.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
+
+          # Biometrics implementation
+          if biometric_enabled:
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_IMPORTS__", "import androidx.biometric.BiometricPrompt;\\nimport androidx.biometric.BiometricManager;")
+              biometric_logic = """
+                  BiometricManager biometricManager = BiometricManager.from(this);
+                  switch (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+                      case BiometricManager.BIOMETRIC_SUCCESS:
+                          java.util.concurrent.Executor executor = ContextCompat.getMainExecutor(this);
+                          BiometricPrompt biometricPrompt = new BiometricPrompt(MainActivity.this,
+                                  executor, new BiometricPrompt.AuthenticationCallback() {
+                              @Override
+                              public void onAuthenticationError(int errorCode, CharSequence errString) {
+                                  super.onAuthenticationError(errorCode, errString);
+                                  Toast.makeText(getApplicationContext(), "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                                  finish();
+                              }
+
+                              @Override
+                              public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                                  super.onAuthenticationSucceeded(result);
+                                  Toast.makeText(getApplicationContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show();
+                              }
+
+                              @Override
+                              public void onAuthenticationFailed() {
+                                  super.onAuthenticationFailed();
+                                  Toast.makeText(getApplicationContext(), "Authentication failed", Toast.LENGTH_SHORT).show();
+                              }
+                          });
+
+                          BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
+                                  .setTitle("Biometric Login")
+                                  .setSubtitle("Log in using your credentials")
+                                  .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                                  .build();
+
+                          biometricPrompt.authenticate(promptInfo);
+                          break;
+                      default:
+                          break;
+                  }
+              """
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_INIT_LOGIC__", biometric_logic.strip())
+          else:
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_IMPORTS__", "")
+              main_activity_java = main_activity_java.replace("__BIOMETRIC_INIT_LOGIC__", "")
+
           # Insert dynamic PHP Server conditions in Java
           php_support_val = "true" if php_support else "false"
           main_activity_java = main_activity_java.replace("__PHP_SUPPORT_ENABLED__", php_support_val)
@@ -2597,7 +2748,7 @@ jobs:
 
           # Process Splash Screen Logo
           splash_src = "app/src/main/assets/_splash_icon.png"
-          if os.path.exists(splash_src):
+          if os.path.exists(splash_src) and splash_screen_enabled:
               os.makedirs("app/src/main/res/drawable", exist_ok=True)
               try:
                   with Image.open(splash_src) as img:
