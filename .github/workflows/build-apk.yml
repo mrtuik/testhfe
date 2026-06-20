@@ -1,7 +1,28 @@
-name: Build APK from Web Archive (Master Fix)
+name: Build APK from Web Archive
 
 on:
   workflow_dispatch:
+    inputs:
+      appName:
+        description: 'App display name'
+        required: false
+        default: 'My App'
+      packageId:
+        description: 'Package ID (e.g. com.example.myapp)'
+        required: false
+        default: 'com.example.myapp'
+      versionName:
+        description: 'Version name (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+      versionCode:
+        description: 'Version code (integer)'
+        required: false
+        default: '1'
+      zipName:
+        description: 'Name of the uploaded zip file in repo root (e.g. payload.zip)'
+        required: false
+        default: 'payload.zip'
   repository_dispatch:
     types: [build-apk]
 
@@ -11,23 +32,41 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     env:
-      APP_NAME: ${{ github.event.client_payload.appName || 'My App' }}
-      PACKAGE_ID: ${{ github.event.client_payload.packageId || 'com.example.runner' }}
-      VERSION_NAME: ${{ github.event.client_payload.versionName || '1.0.0' }}
-      VERSION_CODE: ${{ github.event.client_payload.versionCode || '1' }}
-      ZIP_NAME: ${{ github.event.client_payload.zipName || 'web_payload.zip' }}
+      APP_NAME:     ${{ github.event.client_payload.appName     || github.event.inputs.appName     || 'My App' }}
+      RAW_PKG_ID:   ${{ github.event.client_payload.packageId   || github.event.inputs.packageId   || 'com.example.myapp' }}
+      VERSION_NAME: ${{ github.event.client_payload.versionName || github.event.inputs.versionName || '1.0.0' }}
+      VERSION_CODE: ${{ github.event.client_payload.versionCode || github.event.inputs.versionCode || '1' }}
+      ZIP_NAME:     ${{ github.event.client_payload.zipName     || github.event.inputs.zipName     || 'payload.zip' }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Sanitize PACKAGE_ID (Java-safe)
+        run: |
+          set -e
+          RAW="${RAW_PKG_ID}"
+          # lowercase, replace invalid chars with dots, collapse, trim
+          CLEAN=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9.]+/./g; s/\.+/./g; s/^\.+|\.+$//g')
+          # ensure at least 2 segments
+          if ! echo "$CLEAN" | grep -q '\.'; then
+            CLEAN="com.example.${CLEAN:-myapp}"
+          fi
+          # ensure no segment starts with a digit
+          CLEAN=$(echo "$CLEAN" | awk -F. '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]/) $i="a"$i;} OFS="."; print}')
+          echo "PACKAGE_ID=$CLEAN" >> "$GITHUB_ENV"
+          echo "Using PACKAGE_ID=$CLEAN"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Set up JDK 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -36,197 +75,105 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Extract User Web Payload
+      - name: Verify payload zip exists
         run: |
-          mkdir -p www
-          unzip -o "${ZIP_NAME}" -d www/ || true
-          
-          INDEX_PATH=$(find www -type f \( -name "index.html" -o -name "index.php" \) | head -n 1)
-          if [ -n "$INDEX_PATH" ]; then
-              SUBDIR=$(dirname "$INDEX_PATH")
-              if [ "$SUBDIR" != "www" ]; then
-                  echo "Moving files from $SUBDIR to www/"
-                  mv "$SUBDIR"/* www/ || true
-              fi
-          else
-              echo "Warning: No index.html or index.php found!"
+          if [ ! -f "${ZIP_NAME}" ]; then
+            echo "::error::Zip '${ZIP_NAME}' not found in repo root."
+            ls -la
+            exit 1
           fi
 
-      - name: Initialize Capacitor 6 Project
+      - name: Extract web payload into www/
         run: |
-          npm init -y
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
-          
-          # Sanitize PACKAGE_ID for Java
-          SAFE_PACKAGE_ID=$(echo "${PACKAGE_ID}" | sed -e 's/[^a-zA-Z0-9.]//g' -e 's/^[.]*//' -e 's/[.]*$//')
-          if [ -z "$SAFE_PACKAGE_ID" ]; then SAFE_PACKAGE_ID="com.example.app"; fi
-          echo "SAFE_PACKAGE_ID=$SAFE_PACKAGE_ID" >> $GITHUB_ENV
-          
-          cat << EOF > capacitor.config.json
+          set -e
+          rm -rf www extracted
+          mkdir -p extracted www
+          unzip -q "${ZIP_NAME}" -d extracted
+
+          # Find directory containing index.html (or index.htm)
+          INDEX_PATH=$(find extracted -type f \( -iname "index.html" -o -iname "index.htm" \) | head -n 1 || true)
+          if [ -z "$INDEX_PATH" ]; then
+            echo "::error::No index.html found inside ${ZIP_NAME}"
+            find extracted -maxdepth 3
+            exit 1
+          fi
+          SRC_DIR=$(dirname "$INDEX_PATH")
+          echo "Web root detected: $SRC_DIR"
+          cp -R "$SRC_DIR"/. www/
+          echo "www/ contents:"
+          ls -la www | head -n 50
+
+      - name: Initialize Node project & install Capacitor
+        run: |
+          set -e
+          # fresh package.json so we don't conflict with anything in repo
+          rm -f package.json package-lock.json
+          npm init -y >/dev/null
+          npm install --save \
+            @capacitor/core@^6 \
+            @capacitor/android@^6
+          npm install --save-dev @capacitor/cli@^6
+
+      - name: Write capacitor.config.json
+        run: |
+          cat > capacitor.config.json <<EOF
           {
-            "appId": "${SAFE_PACKAGE_ID}",
+            "appId": "${PACKAGE_ID}",
             "appName": "${APP_NAME}",
             "webDir": "www",
-            "bundledWebRuntime": false,
             "server": {
               "androidScheme": "https",
-              "cleartext": true
+              "allowNavigation": ["*"]
             }
           }
           EOF
-          
-          npx cap add android
+          cat capacitor.config.json
 
-      - name: Generate App Icons Safely
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Patch Android version & Gradle memory
         run: |
-          npm install -g @capacitor/assets@3 --legacy-peer-deps
-          mkdir -p assets
-          if [ -f "www/_app_icon.png" ]; then
-            cp www/_app_icon.png assets/icon.png
-          else
-            wget -qO assets/icon.png https://raw.githubusercontent.com/ionic-team/capacitor-assets/main/assets/icon-only.png || true
+          set -e
+          BUILD_GRADLE=android/app/build.gradle
+          sed -i -E "s/versionCode [0-9]+/versionCode ${VERSION_CODE}/" "$BUILD_GRADLE"
+          sed -i -E "s/versionName \"[^\"]+\"/versionName \"${VERSION_NAME}\"/" "$BUILD_GRADLE"
+
+          GP=android/gradle.properties
+          touch "$GP"
+          # remove any existing jvmargs line then append a generous one
+          sed -i '/^org.gradle.jvmargs=/d' "$GP"
+          echo 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8' >> "$GP"
+          echo 'org.gradle.daemon=false' >> "$GP"
+          echo 'org.gradle.parallel=true' >> "$GP"
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Locate APK
+        id: find_apk
+        run: |
+          APK=$(find android/app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK produced"
+            exit 1
           fi
-          
-          if [ -f "www/_splash_icon.png" ]; then
-            cp www/_splash_icon.png assets/splash.png
-          else
-            cp assets/icon.png assets/splash.png || true
-          fi
-          
-          npx capacitor-assets generate --android || echo "Icon generation failed/skipped, using defaults."
+          echo "Built: $APK"
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
 
-      - name: Install Native Plugins
-        run: |
-          npm install @capacitor/splash-screen@6 @capacitor/app@6 @capacitor/haptics@6 @capacitor/keyboard@6 @capacitor/status-bar@6 --legacy-peer-deps
-          npm install @capacitor-community/admob --legacy-peer-deps
-          
-          npx cap sync android
-
-      - name: Configure Gradle Memory limits & Jetifier (OOM Fix)
-        run: |
-          cat << 'EOF' >> android/gradle.properties
-          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
-      - name: Configure Android Manifest & Permissions
-        run: |
-          node -e "
-          const fs = require('fs');
-          let config = {};
-          try { config = JSON.parse(fs.readFileSync('www/app_config.json', 'utf8')); } catch(e) {}
-          
-          const admobId = config.admobAppId || 'ca-app-pub-3940256099942544~3347511713';
-          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
-          
-          if(fs.existsSync(manifestPath)) {
-            let xml = fs.readFileSync(manifestPath, 'utf8');
-            if(!xml.includes('com.google.android.gms.ads.APPLICATION_ID')) {
-              xml = xml.replace('</application>', \`    <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"\${admobId}\"/>\\n    </application>\`);
-            }
-            
-            const perms = ['android.permission.INTERNET', 'android.permission.WAKE_LOCK', 'android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS', 'android.permission.ACCESS_NETWORK_STATE'];
-            perms.forEach(p => {
-              if(!xml.includes(p)) {
-                xml = xml.replace('</manifest>', \`    <uses-permission android:name=\"\${p}\"/>\\n</manifest>\`);
-              }
-            });
-            fs.writeFileSync(manifestPath, xml);
-          }
-          "
-
-      - name: Fetch PHP 8.4 Binary
-        run: |
-          wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz || true
-          if [ -s php.tar.gz ] && tar -tzf php.tar.gz >/dev/null 2>&1; then
-              tar -xzf php.tar.gz
-              mkdir -p android/app/src/main/jniLibs/arm64-v8a
-              PHP_BIN_PATH=$(find . -name "php" -type f -print -quit)
-              if [ -n "$PHP_BIN_PATH" ]; then
-                  cp "$PHP_BIN_PATH" android/app/src/main/jniLibs/arm64-v8a/libphp.so
-              fi
-          fi
-
-      - name: Complete Overwrite of MainActivity
-        run: |
-          MAIN_ACTIVITY_PATH=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1)
-          if [ -n "$MAIN_ACTIVITY_PATH" ]; then
-          cat << EOF > "$MAIN_ACTIVITY_PATH"
-          package ${SAFE_PACKAGE_ID};
-
-          import android.os.Bundle;
-          import java.io.File;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  startPhpServer();
-              }
-
-              private void startPhpServer() {
-                  new Thread(() -> {
-                      try {
-                          String nativeDir = getApplicationInfo().nativeLibraryDir;
-                          String phpBinary = nativeDir + "/libphp.so";
-                          String docRoot = getApplicationContext().getFilesDir().getAbsolutePath() + "/public";
-                          File binaryFile = new File(phpBinary);
-                          if (binaryFile.exists()) {
-                              binaryFile.setExecutable(true, false);
-                              ProcessBuilder pb = new ProcessBuilder(phpBinary, "-S", "127.0.0.1:8080", "-t", docRoot);
-                              pb.redirectErrorStream(true);
-                              pb.start();
-                          }
-                      } catch (Exception e) {
-                          e.printStackTrace();
-                      }
-                  }).start();
-              }
-          }
-          EOF
-          fi
-
-      - name: Build Android APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew clean
-          ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Package APK into ZIP
-        run: |
-          CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
-          APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
-          ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
-          
-          cd android/app/build/outputs/apk/debug/
-          mv app-debug.apk $APK_NAME
-          zip -r ../../../../../$ZIP_NAME $APK_NAME
-
-      - name: Generate Unique Release Tag
-        id: tag_gen
-        run: |
-          CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
-          echo "TAG_NAME=release-${CLEANED_NAME}-${{ github.run_number }}" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release and Upload APK
-        uses: softprops/action-gh-release@v1
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
-          name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
-          body: "Automated Capacitor Native Build for **${{ env.APP_NAME }}**"
-          files: |
-            android/app/build/outputs/apk/debug/*.apk
-            *.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Clean up temporary payload zip from git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git rm -f "${ZIP_NAME}" || true
-          git commit -m "chore: clean up temporary payload [skip ci]" || true
-          git push origin main || git push origin master || true
+          name: app-debug-apk
+          path: ${{ steps.find_apk.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 14
