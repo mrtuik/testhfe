@@ -969,6 +969,8 @@ jobs:
           import android.speech.RecognizerIntent;
           import android.speech.SpeechRecognizer;
           import android.speech.RecognitionListener;
+          import org.json.JSONObject;
+          import org.json.JSONArray;
           __BIOMETRIC_IMPORTS__
           __SWIPE_IMPORT__
 
@@ -1012,7 +1014,7 @@ jobs:
                               }
                           });
                       }
-                      mPollHandler.postDelayed(this, 1000);
+                      mPollHandler.postDelayed(mPollRunnable, 1000);
                   }
               };
 
@@ -1374,7 +1376,7 @@ jobs:
 
               public void showInboxNotification(String title, String message, String linesJsonArray) {
                   try {
-                      org.json.JSONArray jsonArray = new org.json.JSONArray(linesJsonArray);
+                      JSONArray jsonArray = new JSONArray(linesJsonArray);
                       NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
                               .setSmallIcon(getApplicationInfo().icon)
                               .setContentTitle(title)
@@ -2087,7 +2089,7 @@ jobs:
                   @JavascriptInterface
                   public void triggerDynamicNotification(String jsonStr) {
                       try {
-                          org.json.JSONObject json = new org.json.JSONObject(jsonStr);
+                          JSONObject json = new JSONObject(jsonStr);
                           int id = json.optInt("id", (int) System.currentTimeMillis());
                           String title = json.optString("title", "App Alert");
                           String message = json.optString("message", "");
@@ -2147,7 +2149,7 @@ jobs:
                           }
 
                           if (json.has("inboxLines")) {
-                              org.json.JSONArray lines = json.getJSONArray("inboxLines");
+                              JSONArray lines = json.getJSONArray("inboxLines");
                               NotificationCompat.InboxStyle inboxStyle = new NotificationCompat.InboxStyle();
                               for (int i = 0; i < lines.length(); i++) {
                                   inboxStyle.addLine(lines.getString(i));
@@ -2164,9 +2166,9 @@ jobs:
                           }
 
                           if (json.has("actions")) {
-                              org.json.JSONArray actions = json.getJSONArray("actions");
+                              JSONArray actions = json.getJSONArray("actions");
                               for (int i = 0; i < actions.length(); i++) {
-                                  org.json.JSONObject act = actions.getJSONObject(i);
+                                  JSONObject act = actions.getJSONObject(i);
                                   String actTitle = act.optString("title", "Action");
                                   String actCode = act.optString("actionCode", "ACTION");
 
@@ -2362,7 +2364,7 @@ jobs:
                               builder.setContentTitle(title != null ? title : "File Download Service")
                                   .setContentText(message != null ? message : "Downloading system files...")
                                   .setSmallIcon(android.R.drawable.stat_sys_download)
-                                  .setCategory(NotificationCompat.DIRECTORY_DOWNLOADS);
+                                  .setCategory(NotificationCompat.CATEGORY_SERVICE);
                           } else if (taskType.equals("upload")) {
                               String title = intent.getStringExtra("title");
                               String message = intent.getStringExtra("message");
