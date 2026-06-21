@@ -481,7 +481,8 @@ jobs:
           with open("android/app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
               f.write(custom_media_collapsed_xml.strip())
 
-          # FIXED: XML marker prefix strictly removed to prevent AAPT2 formatting failures [1]
+          # FIXED: Clean layout without 'xml' syntax highlight prefix [1]
+          # FIXED: Resolved timeline_layout circular dependency by anchoring below media_album_art_large [1]
           custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
@@ -679,7 +680,7 @@ jobs:
           </manifest>
           """
           
-          # Setup Android Manifest Injections [1]
+          # FIXED: Manifest permission injections mapped dynamically [1]
           camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
           audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
           notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
@@ -690,7 +691,8 @@ jobs:
           <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
           <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
           <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-          """
+          """ if (local_storage_enabled or file_transfer_enabled) else ""
+          
           location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
           biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
 
@@ -706,9 +708,6 @@ jobs:
           manifest = manifest.replace("__STORAGE_P__", storage_p)
           manifest = manifest.replace("__LOCATION_P__", location_p)
           manifest = manifest.replace("__BIOMETRIC_P__", biometric_p)
-          manifest = manifest.replace("__MAIN_ACTIVITY__", package_id + ".MainActivity")
-          manifest = manifest.replace("__NOTIFICATION_RECEIVER__", package_id + ".MainActivity$NotificationReceiver")
-          manifest = manifest.replace("__FOREGROUND_SERVICE__", package_id + ".MainActivity$ForegroundService")
           manifest = manifest.replace("__ORIENTATION__", orientation_mode)
           manifest = manifest.replace("__PACKAGE_ID__", package_id)
 
