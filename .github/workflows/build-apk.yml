@@ -136,8 +136,8 @@ jobs:
           }
           EOF
           
-          # Install all core and custom Capacitor plugins inside the runner
-          npm install
+          # FIXED: Appending --legacy-peer-deps to ignore community plugin dependency limits [1]
+          npm install --legacy-peer-deps
 
       - name: Initialize Capacitor 6 Project Structure
         run: |
@@ -244,6 +244,28 @@ jobs:
                   break
 
           php_support = config.get("phpSupport", True) and has_php_files
+
+          # Setup Android Manifest permission templates [1]
+          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
+          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
+          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
+          
+          storage_p = """
+          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+          <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+          <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+          <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+          """ if (local_storage_enabled or file_transfer_enabled) else ""
+          
+          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
+          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
+
+          orientation_mode = "unspecified"
+          if screen_rotation == "portrait":
+              orientation_mode = "portrait"
+          elif screen_rotation == "landscape":
+              orientation_mode = "landscape"
 
           # FIXED: Clean, unified build.gradle template using default debug signing to bypass signingConfig complications [1]
           app_build_gradle_template = """
@@ -714,7 +736,7 @@ jobs:
           </manifest>
           """
           
-          # FIXED: Manifest permission injections mapped dynamically [1]
+          # Manifest Injections
           camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
           audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
           notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
@@ -1025,11 +1047,11 @@ jobs:
 
               public void showNotification(String title, String message) {
                   NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
-                      .setSmallIcon(getApplicationInfo().icon)
-                      .setContentTitle(title)
-                      .setContentText(message)
-                      .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
-                      .setAutoCancel(true);
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(message)
+                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                          .setAutoCancel(true);
 
                   NotificationManagerCompat manager = NotificationManagerCompat.from(this);
                   manager.notify((int) System.currentTimeMillis(), builder.build());
@@ -1096,7 +1118,7 @@ jobs:
                   });
               }
 
-              // FIXED: Changed method visibility to 'public' to override BridgeActivity's public onDestroy [1]
+              // FIXED: Explicitly overridden onDestroy with public visibility [1]
               @Override
               public void onDestroy() {
                   mPollHandler.removeCallbacks(mPollRunnable);
