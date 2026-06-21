@@ -1,27 +1,3 @@
-Here is the corrected and fully working GitHub Actions workflow.
-
-What Was Breaking Your Build:
-
-1.  Python Syntax Leaked into Java: There was a line inside the
-    MainActivity.java generator (paint.close() if hasattr(paint, "close") else
-    None;). Because it was embedded inside the Java multiline string without
-    string interpolation, it was literally written to the .java file, causing a
-    not a statement Java compilation error.
-2.  Missing Biometric Dependency: When biometric_enabled toggled ON, the
-    workflow generated imports for androidx.biometric.BiometricPrompt, but it
-    missed declaring implementation 'androidx.biometric:biometric:1.1.0' in
-    build.gradle, causing a cannot find symbol error.
-3.  Pip Install Blocked by OS: Modern Ubuntu 24.04 images mark Python as
-    EXTERNALLY-MANAGED. Running pip install Pillow globally causes the workflow
-    to crash unless the --break-system-packages flag is appended.
-4.  PHP Binary Fetch Hazard: Extracting the tarball to the root directory and
-    running find . -name "php" could accidentally pick up other matching files
-    or directories. It is now properly sandboxed inside an isolated directory.
-
-The Fixed Workflow:
-
-Replace your .github/workflows/build.yml with the following:
-
 name: Build APK from Web Archive
 
 on:
