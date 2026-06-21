@@ -49,7 +49,6 @@ jobs:
           echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          
           echo "android.bundle.enableUncompressedNativeLibs=false" >> gradle.properties
           
           cat << 'EOF' > settings.gradle
@@ -102,11 +101,9 @@ jobs:
           echo "Downloading PocketMine PHP 8.4 static binary for Android arm64..."
           wget -q https://github.com/pmmp/PHP-Binaries/releases/download/pm5-php-8.4-latest/PHP-8.4-Android-arm64-PM5.tar.gz -O php.tar.gz
           
-          # Isolate extraction to prevent find command collision
           mkdir php_bin
           tar -xzf php.tar.gz -C php_bin
           
-          # Dynamic Recursive File Finder
           PHP_BIN_PATH=$(find php_bin -name "php" -type f -print -quit)
           if [ -n "$PHP_BIN_PATH" ]; then
               cp "$PHP_BIN_PATH" app/src/main/jniLibs/arm64-v8a/libphp.so
@@ -943,6 +940,7 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
+          import android.os.Handler;
           import android.view.View;
           import android.view.Window;
           import android.view.WindowManager;
@@ -1943,7 +1941,7 @@ jobs:
                                       public void onResults(Bundle results) {
                                           ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                                           if (matches != null && !matches.isEmpty()) {
-                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\'") + "'); }");
+                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\\\'") + "'); }");
                                           }
                                       }
                                       @Override
@@ -2712,10 +2710,6 @@ jobs:
           echo "### Generated Android Manifest Settings" >> $GITHUB_STEP_SUMMARY
           echo '```xml' >> $GITHUB_STEP_SUMMARY
           cat app/src/main/AndroidManifest.xml >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "### Compiled MainActivity.java Source" >> $GITHUB_STEP_SUMMARY
-          echo '```java' >> $GITHUB_STEP_SUMMARY
-          cat app/src/main/java/com/example/runner/MainActivity.java >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Run APK Compile Gradle Task
