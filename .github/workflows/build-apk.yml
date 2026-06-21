@@ -41,44 +41,6 @@ jobs:
         with:
           gradle-version: '8.2'
 
-      - name: Initialize Android Web-View Wrapper Template
-        run: |
-          echo "Initializing lightweight Gradle project structure..."
-          mkdir -p app/src/main/java/com/example/runner
-          mkdir -p app/src/main/assets
-          mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/layout
-          mkdir -p app/src/main/res/drawable
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          
-          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          echo "android.bundle.enableUncompressedNativeLibs=false" >> gradle.properties
-          
-          cat << 'EOF' > settings.gradle
-          rootProject.name = 'WebRunner'
-          include ':app'
-          EOF
-          
-          cat << 'EOF' > build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.0.2'
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
-
       - name: Fetch Website Archive and Verify Assets
         run: |
           echo "Verifying local web workspace ZIP archive inside repository..."
@@ -121,10 +83,10 @@ jobs:
               "@capacitor/share": "^6.0.0",
               "@capacitor/local-notifications": "^6.0.0",
               "@capacitor/push-notifications": "^6.0.0",
-              "@capacitor/background-runner": "^6.0.0",
+              "@capacitor/background-task": "^6.0.0",
               "@capawesome/capacitor-file-picker": "^6.0.0",
               "@capgo/capacitor-native-audio": "^6.0.0",
-              "capacitor-music-controls-plugin": "^6.0.0",
+              "capacitor-music-controls-plugin": "^6.0.0-beta.1",
               "@capacitor-community/text-to-speech": "^6.0.0",
               "@capacitor-community/speech-recognition": "^6.0.0",
               "@capacitor-community/admob": "^6.0.0",
@@ -186,7 +148,6 @@ jobs:
           import json
           import os
           import shutil
-          import urllib.request
           from PIL import Image
 
           config_path = "www/app_config.json"
@@ -204,26 +165,12 @@ jobs:
           homepage = config.get("homepage", "index.html")
           screen_rotation = config.get("screenRotation", "auto")
           splash_bg_color = config.get("splashBgColor", "#111827")
-          splash_duration = int(config.get("splashDuration", 2000))
-
+          
           # Dynamic Feature Toggles with Default Value Configurations [1]
-          database_enabled = config.get("databaseEnabled", True)
           camera_enabled = config.get("cameraEnabled", True)
           notifications_enabled = config.get("notificationsEnabled", True)
           local_storage_enabled = config.get("localStorageEnabled", True)
-          fullscreen_enabled = config.get("fullscreenEnabled", True)
-          autoplay_enabled = config.get("autoplayEnabled", True)
           microphone_enabled = config.get("microphoneEnabled", True)
-          hide_title_bar = config.get("hideTitleBar", True)
-          swipe_refresh_enabled = config.get("swipeRefreshEnabled", True)
-          long_press_enabled = config.get("longPressEnabled", True)
-          loading_ui_enabled = config.get("loadingUIEnabled", True)
-          pc_mode_enabled = config.get("pcModeEnabled", False)
-          zoom_enabled = config.get("zoomEnabled", True)
-          has_custom_splash = config.get("hasCustomSplash", False)
-          php_port = int(config.get("phpPort", 8080))
-
-          # System Configuration variables mapping from config to prevent python process crash [1]
           location_enabled = config.get("locationEnabled", False)
           biometric_enabled = config.get("biometricEnabled", False)
           file_transfer_enabled = config.get("fileTransferEnabled", True)
@@ -231,43 +178,13 @@ jobs:
           double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
           keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
           secure_window_enabled = config.get("secureWindowEnabled", False)
-          external_browser_enabled = config.get("externalBrowserEnabled", True)
 
           # Auto-detect PHP support
-          has_php_files = False
-          for root, dirs, files in os.walk("www"):
-              for file in files:
-                  if file.endswith(".php"):
-                      has_php_files = True
-                      break
-              if has_php_files:
-                  break
-
+          has_php_files = any(file.endswith(".php") for root, dirs, files in os.walk("www") for file in files)
           php_support = config.get("phpSupport", True) and has_php_files
+          php_port = int(config.get("phpPort", 8080))
 
-          # Setup Android Manifest permission templates [1]
-          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
-          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
-          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
-          
-          storage_p = """
-          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-          <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-          <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-          <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-          """ if (local_storage_enabled or file_transfer_enabled) else ""
-          
-          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
-          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
-
-          orientation_mode = "unspecified"
-          if screen_rotation == "portrait":
-              orientation_mode = "portrait"
-          elif screen_rotation == "landscape":
-              orientation_mode = "landscape"
-
-          # FIXED: Clean, unified build.gradle template using default debug signing to bypass signingConfig complications [1]
+          # Gradle template using default debug signing
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -299,35 +216,28 @@ jobs:
               implementation project(':capacitor-android')
               implementation 'androidx.webkit:webkit:1.6.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
-              implementation 'com.google.android.material:material:1.9.0'
               implementation 'androidx.media:media:1.6.0'
               implementation 'androidx.biometric:biometric:1.1.0'
           }
           """
-          app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id)
-          app_build_gradle = app_build_gradle.replace("__VERSION_CODE__", str(version_code))
-          app_build_gradle = app_build_gradle.replace("__VERSION_NAME__", version_name)
-          
+          app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id).replace("__VERSION_CODE__", str(version_code)).replace("__VERSION_NAME__", version_name)
           with open("android/app/build.gradle", "w") as f:
               f.write(app_build_gradle.strip())
 
           # Generate system assets XML Configurations
           os.makedirs("android/app/src/main/res/values", exist_ok=True)
-          colors_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          colors_xml = f"""<?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <color name="colorPrimary">__THEME_COLOR__</color>
-              <color name="colorPrimaryDark">__THEME_COLOR__</color>
-              <color name="colorAccent">__THEME_COLOR__</color>
-              <color name="splashBg">__SPLASH_BG_COLOR__</color>
+              <color name="colorPrimary">{theme_color}</color>
+              <color name="colorPrimaryDark">{theme_color}</color>
+              <color name="colorAccent">{theme_color}</color>
+              <color name="splashBg">{splash_bg_color}</color>
           </resources>
           """
-          colors_xml = colors_xml_template.replace("__THEME_COLOR__", theme_color).replace("__SPLASH_BG_COLOR__", splash_bg_color)
           with open("android/app/src/main/res/values/colors.xml", "w") as f:
               f.write(colors_xml.strip())
-
-          # Injects clean AppCompat themes compatible with Capacitor's Bridge activity
-          styles_xml_template = """<?xml version="1.0" encoding="utf-8"?>
+          
+          styles_xml = """<?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
                   <item name="colorPrimary">@color/colorPrimary</item>
@@ -341,7 +251,7 @@ jobs:
           </resources>
           """
           with open("android/app/src/main/res/values/styles.xml", "w") as f:
-              f.write(styles_xml_template.strip())
+              f.write(styles_xml.strip())
 
           # Write dynamic strings metadata resource
           strings_xml = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -353,360 +263,25 @@ jobs:
           with open("android/app/src/main/res/values/strings.xml", "w") as f:
               f.write(strings_xml.strip())
 
-          # Write custom_notification layout & Vector Drawables
-          custom_notification_xml = """<?xml version="1.0" encoding="utf-8"?>
-          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="64dp"
-              android:orientation="horizontal"
-              android:padding="8dp"
-              android:background="#1E293B">
-              <ImageView
-                  android:id="@+id/custom_icon"
-                  android:layout_width="48dp"
-                  android:layout_height="48dp"
-                  android:src="@mipmap/ic_launcher"
-                  android:layout_gravity="center_vertical"/>
-              <LinearLayout
-                  android:layout_width="0dp"
-                  android:layout_height="wrap_content"
-                  android:layout_weight="1"
-                  android:orientation="vertical"
-                  android:layout_marginLeft="12dp"
-                  android:layout_gravity="center_vertical">
-                  <TextView
-                      android:id="@+id/custom_title"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Custom Title"
-                      android:textColor="#F8FAFC"
-                      android:textSize="14sp"
-                      android:textStyle="bold"/>
-                  <TextView
-                      android:id="@+id/custom_text"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Custom Message Body"
-                      android:textColor="#94A3B8"
-                      android:textSize="12sp"/>
-              </LinearLayout>
-          </LinearLayout>
-          """
-          os.makedirs("android/app/src/main/res/layout", exist_ok=True)
-          with open("android/app/src/main/res/layout/custom_notification.xml", "w") as f:
-              f.write(custom_notification_xml.strip())
+          # Setup Android Manifest Injections
+          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
+          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
+          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />' if notifications_enabled else ""
+          storage_p = '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" /><uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" /><uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /><uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /><uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />' if (local_storage_enabled or file_transfer_enabled) else ""
+          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
+          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
+          orientation_mode = "portrait" if screen_rotation == "portrait" else "landscape" if screen_rotation == "landscape" else "unspecified"
 
-          # Media expanded notification layouts
-          os.makedirs("android/app/src/main/res/drawable", exist_ok=True)
-          bg_tuik_badge_xml = """<?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android">
-              <solid android:color="#232B3E" />
-              <corners android:radius="16dp" />
-          </shape>"""
-          with open("android/app/src/main/res/drawable/bg_tuik_badge.xml", "w") as f:
-              f.write(bg_tuik_badge_xml.strip())
-
-          def write_vector(filename, path_data, viewport="24"):
-              xml = f"""<vector xmlns:android="http://schemas.android.com/apk/res/android"
-                  android:width="24dp"
-                  android:height="24dp"
-                  android:viewportWidth="{viewport}"
-                  android:viewportHeight="{viewport}">
-                  <path android:fillColor="?android:attr/textColorPrimary" android:pathData="{path_data}"/>
-              </vector>"""
-              with open(f"android/app/src/main/res/drawable/{filename}.xml", "w") as f_out:
-                  f_out.write(xml.strip())
-
-          write_vector("ic_notification_prev", "M6,18V6h2v12H6z M9.5,12l8.5,6V6L9.5,12z")
-          write_vector("ic_notification_play", "M8,5v14l11-7L8,5z")
-          write_vector("ic_notification_pause", "M6,19h4V5H6V19z M14,5v14h4V5H14z")
-          write_vector("ic_notification_next", "M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z")
-          write_vector("ic_notification_stop", "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41z")
-          write_vector("ic_notification_rewind", "M11,18V6l-8.5,6L11,18z M11.5,12l8.5,6V6L11.5,12z")
-          write_vector("ic_notification_fast_forward", "M13,6v12l8.5-6L13,6z M12.5,12l-8.5,6V6L12.5,12z")
-          write_vector("ic_notification_code", "M9.4,16.6L4.8,12l4.6-4.6L8,6l-6,6l6,6L9.4,16.6z M14.6,16.6l4.6-4.6l-4.6-4.6L16,6l6,6l-6,6L14.6,16.6z")
-
-          custom_media_collapsed_xml = """<?xml version="1.0" encoding="utf-8"?>
-          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/notification_root"
-              android:layout_width="match_parent"
-              android:layout_height="80dp"
-              android:padding="8dp"
-              android:clickable="true"
-              android:focusable="true">
-              <ImageView
-                  android:id="@+id/media_album_art"
-                  android:layout_width="52dp"
-                  android:layout_height="52dp"
-                  android:scaleType="centerCrop"
-                  android:layout_alignParentLeft="true"
-                  android:layout_centerVertical="true"
-                  android:layout_marginLeft="4dp"/>
-              <LinearLayout
-                  android:id="@+id/metadata_layout"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:orientation="vertical"
-                  android:layout_toRightOf="@id/media_album_art"
-                  android:layout_toLeftOf="@+id/media_controls_layout"
-                  android:layout_centerVertical="true"
-                  android:layout_marginLeft="10dp"
-                  android:layout_marginRight="10dp">
-                  <TextView
-                      android:id="@+id/media_track_title"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Track Title"
-                      android:textColor="?android:attr/textColorPrimary"
-                      android:textSize="13sp"
-                      android:textStyle="bold"
-                      android:ellipsize="end"
-                      android:singleLine="true"/>
-                  <LinearLayout
-                      android:id="@+id/tuik_badge"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:orientation="horizontal"
-                      android:background="@drawable/bg_tuik_badge"
-                      android:paddingLeft="8dp"
-                      android:paddingRight="8dp"
-                      android:paddingTop="3dp"
-                      android:paddingBottom="3dp"
-                      android:layout_marginTop="4dp"
-                      android:gravity="center_vertical">
-                      <ImageView
-                          android:layout_width="10dp"
-                          android:layout_height="10dp"
-                          android:src="@drawable/ic_notification_code"
-                          android:layout_marginRight="4dp"/>
-                      <TextView
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="Tuik"
-                          android:textColor="#F8FAFC"
-                          android:textSize="9sp"
-                          android:textStyle="bold"/>
-                  </LinearLayout>
-              </LinearLayout>
-              <LinearLayout
-                  android:id="@+id/media_controls_layout"
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:layout_alignParentRight="true"
-                  android:layout_centerVertical="true"
-                  android:layout_marginRight="4dp"
-                  android:gravity="center">
-                  <ImageButton
-                      android:id="@+id/btn_prev"
-                      android:layout_width="28dp"
-                      android:layout_height="28dp"
-                      android:src="@drawable/ic_notification_prev"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Previous"/>
-                  <ImageButton
-                      android:id="@+id/btn_play_pause"
-                      android:layout_width="32dp"
-                      android:layout_height="32dp"
-                      android:src="@drawable/ic_notification_pause"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Play/Pause"
-                      android:layout_marginLeft="6dp"
-                      android:layout_marginRight="6dp"/>
-                  <ImageButton
-                      android:id="@+id/btn_next"
-                      android:layout_width="28dp"
-                      android:layout_height="28dp"
-                      android:src="@drawable/ic_notification_next"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Next"/>
-              </LinearLayout>
-              <ProgressBar
-                  android:id="@+id/custom_media_progress"
-                  style="?android:attr/progressBarStyleHorizontal"
-                  android:layout_width="match_parent"
-                  android:layout_height="3dp"
-                  android:layout_alignParentBottom="true"
-                  android:progressDrawable="@android:drawable/progress_horizontal"
-                  android:progressTint="?android:attr/colorAccent"
-                  android:progressBackgroundTint="?android:attr/textColorSecondary"
-                  android:max="100"
-                  android:progress="0"/>
-          </RelativeLayout>
-          """
-          with open("android/app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
-              f.write(custom_media_collapsed_xml.strip())
-
-          # FIXED: Clean layout without 'xml' syntax highlight prefix [1]
-          # FIXED: Resolved timeline_layout circular dependency by anchoring below media_album_art_large [1]
-          custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
-          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/notification_root_large"
-              android:layout_width="match_parent"
-              android:layout_height="144dp"
-              android:padding="12dp"
-              android:clickable="true"
-              android:focusable="true">
-              <ImageView
-                  android:id="@+id/media_album_art_large"
-                  android:layout_width="64dp"
-                  android:layout_height="64dp"
-                  android:scaleType="centerCrop"
-                  android:layout_alignParentLeft="true"
-                  android:layout_alignParentTop="true"/>
-              <LinearLayout
-                  android:id="@+id/details_layout"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="vertical"
-                  android:layout_toRightOf="@id/media_album_art_large"
-                  android:layout_marginLeft="14dp"
-                  android:layout_alignParentTop="true"
-                  android:layout_toLeftOf="@+id/btn_stop">
-                  <TextView
-                      android:id="@+id/media_track_title_large"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Track Title"
-                      android:textColor="?android:attr/textColorPrimary"
-                      android:textSize="14sp"
-                      android:textStyle="bold"
-                      android:ellipsize="end"
-                      android:singleLine="true"/>
-                  <LinearLayout
-                      android:id="@+id/tuik_badge_large"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:orientation="horizontal"
-                      android:background="@drawable/bg_tuik_badge"
-                      android:paddingLeft="8dp"
-                      android:paddingRight="8dp"
-                      android:paddingTop="3dp"
-                      android:paddingBottom="3dp"
-                      android:layout_marginTop="4dp"
-                      android:gravity="center_vertical">
-                      <ImageView
-                          android:layout_width="10dp"
-                          android:layout_height="10dp"
-                          android:src="@drawable/ic_notification_code"
-                          android:layout_marginRight="4dp"/>
-                      <TextView
-                          android:layout_width="wrap_content"
-                          android:layout_height="wrap_content"
-                          android:text="Tuik"
-                          android:textColor="#F8FAFC"
-                          android:textSize="9sp"
-                          android:textStyle="bold"/>
-                  </LinearLayout>
-              </LinearLayout>
-              <ImageButton
-                  android:id="@+id/btn_stop"
-                  android:layout_width="28dp"
-                  android:layout_height="28dp"
-                  android:src="@drawable/ic_notification_stop"
-                  android:background="?android:attr/selectableItemBackgroundBorderless"
-                  android:layout_alignParentRight="true"
-                  android:layout_alignParentTop="true"/>
-              <LinearLayout
-                  android:id="@+id/timeline_layout"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:layout_below="@id/media_album_art_large"
-                  android:layout_marginTop="12dp"
-                  android:gravity="center_vertical">
-                  <TextView
-                      android:id="@+id/txt_current_time"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="0:00"
-                      android:textColor="?android:attr/textColorSecondary"
-                      android:textSize="10sp"/>
-                  <ProgressBar
-                      android:id="@+id/custom_media_progress_large"
-                      style="?android:attr/progressBarStyleHorizontal"
-                      android:layout_width="0dp"
-                      android:layout_height="4dp"
-                      android:layout_weight="1"
-                      android:layout_marginLeft="8dp"
-                      android:layout_marginRight="8dp"
-                      android:progressTint="?android:attr/colorAccent"
-                      android:progressBackgroundTint="?android:attr/textColorSecondary"
-                      android:max="100"
-                      android:progress="0"/>
-                  <TextView
-                      android:id="@+id/txt_total_duration"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="0:00"
-                      android:textColor="?android:attr/textColorSecondary"
-                      android:textSize="10sp"/>
-              </LinearLayout>
-              <LinearLayout
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:layout_below="@id/timeline_layout"
-                  android:layout_centerHorizontal="true"
-                  android:layout_marginTop="8dp"
-                  android:gravity="center">
-                  <ImageButton
-                      android:id="@+id/btn_prev_large"
-                      android:layout_width="32dp"
-                      android:layout_height="32dp"
-                      android:src="@drawable/ic_notification_prev"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Previous"/>
-                  <ImageButton
-                      android:id="@+id/btn_rewind_large"
-                      android:layout_width="32dp"
-                      android:layout_height="32dp"
-                      android:src="@drawable/ic_notification_rewind"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:layout_marginLeft="10dp"
-                      android:contentDescription="Rewind"/>
-                  <ImageButton
-                      android:id="@+id/btn_play_pause_large"
-                      android:layout_width="36dp"
-                      android:layout_height="36dp"
-                      android:src="@drawable/ic_notification_pause"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Play/Pause"
-                      android:layout_marginLeft="14dp"
-                      android:layout_marginRight="14dp"/>
-                  <ImageButton
-                      android:id="@+id/btn_fast_forward_large"
-                      android:layout_width="32dp"
-                      android:layout_height="32dp"
-                      android:src="@drawable/ic_notification_fast_forward"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:layout_marginRight="10dp"
-                      android:contentDescription="Fast Forward"/>
-                  <ImageButton
-                      android:id="@+id/btn_next_large"
-                      android:layout_width="32dp"
-                      android:layout_height="32dp"
-                      android:src="@drawable/ic_notification_next"
-                      android:background="?android:attr/selectableItemBackgroundBorderless"
-                      android:contentDescription="Next"/>
-              </LinearLayout>
-          </RelativeLayout>
-          """
-          with open("android/app/src/main/res/layout/custom_media_expanded.xml", "w") as f:
-              f.write(custom_media_expanded_xml.strip())
-
-          # FIXED: Fully-qualified class names in AndroidManifest with exact package mapping [1]
-          android_manifest_template = """<?xml version="1.0" encoding="utf-8"?>
+          manifest_template = """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="__PACKAGE_ID__">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              __CAMERA_P__
-              __AUDIO_P__
-              __NOTIF_P__
-              __STORAGE_P__
-              __LOCATION_P__
-              __BIOMETRIC_P__
-
+              {camera_p}
+              {audio_p}
+              {notif_p}
+              {storage_p}
+              {location_p}
+              {biometric_p}
               <application
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
@@ -715,667 +290,38 @@ jobs:
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
                   android:theme="@style/AppTheme">
-
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
-                      android:name="__PACKAGE_ID__.MainActivity"
+                      android:name="{package_id}.MainActivity"
                       android:label="@string/title_activity_main"
                       android:exported="true"
                       android:launchMode="singleTop"
-                      android:screenOrientation="__ORIENTATION__"
+                      android:screenOrientation="{orientation}"
                       android:theme="@style/AppTheme.NoActionBar">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
-
-                  <receiver android:name="__PACKAGE_ID__.MainActivity$NotificationReceiver" android:exported="false" />
-                  <service android:name="__PACKAGE_ID__.MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
               </application>
           </manifest>
-          """
+          """.format(package_id=package_id, camera_p=camera_p, audio_p=audio_p, notif_p=notif_p, storage_p=storage_p, location_p=location_p, biometric_p=biometric_p, orientation=orientation_mode)
           
-          # Manifest Injections
-          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
-          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
-          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
-          
-          storage_p = """
-          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-          <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-          <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-          <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-          """ if (local_storage_enabled or file_transfer_enabled) else ""
-          
-          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
-          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
-
-          orientation_mode = "unspecified"
-          if screen_rotation == "portrait":
-              orientation_mode = "portrait"
-          elif screen_rotation == "landscape":
-              orientation_mode = "landscape"
-
-          manifest = android_manifest_template.replace("__CAMERA_P__", camera_p)
-          manifest = manifest.replace("__AUDIO_P__", audio_p)
-          manifest = manifest.replace("__NOTIF_P__", notif_p)
-          manifest = manifest.replace("__STORAGE_P__", storage_p)
-          manifest = manifest.replace("__LOCATION_P__", location_p)
-          manifest = manifest.replace("__BIOMETRIC_P__", biometric_p)
-          manifest = manifest.replace("__ORIENTATION__", orientation_mode)
-          manifest = manifest.replace("__PACKAGE_ID__", package_id)
-
           with open("android/app/src/main/AndroidManifest.xml", "w") as f:
-              f.write(manifest.strip())
+              f.write(manifest_template)
 
           # Build package structure and write main activity code
           package_path = package_id.replace(".", "/")
           java_dir = f"android/app/src/main/java/{package_path}"
-          
-          # Clean legacy default folders & recreate matching path [1]
-          shutil.rmtree("android/app/src/main/java/com/getcapacitor/myapp", ignore_errors=True)
           os.makedirs(java_dir, exist_ok=True)
 
           # Bridge Activity linking legacy web bridges with Capacitor core web views [1]
-          main_activity_java_template = """package __PACKAGE_ID__;
-          import android.Manifest;
-          import android.app.Activity;
-          import android.app.DownloadManager;
-          import android.app.Notification;
-          import android.app.NotificationChannel;
-          import android.app.NotificationManager;
-          import android.content.Context;
-          import android.content.pm.PackageManager;
-          import android.content.ClipData;
-          import android.content.ClipboardManager;
-          import android.content.Intent;
-          import android.net.Uri;
-          import android.os.Build;
-          import android.os.Bundle;
-          import android.os.Environment;
-          import android.view.View;
-          import android.view.Window;
-          import android.view.WindowManager;
-          import android.webkit.DownloadListener;
-          import android.webkit.PermissionRequest;
-          import android.webkit.URLUtil;
-          import android.webkit.ValueCallback;
-          import android.webkit.WebChromeClient;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
-          import android.webkit.JavascriptInterface;
-          import android.widget.ProgressBar;
-          import android.widget.Toast;
-          import androidx.core.content.ContextCompat;
-          import androidx.core.app.NotificationCompat;
-          import androidx.core.app.NotificationManagerCompat;
-          import android.content.ContentValues;
-          import android.provider.MediaStore;
-          import java.io.File;
-          import java.io.InputStream;
-          import java.io.OutputStream;
-          import java.io.FileOutputStream;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import android.util.Base64;
-          import android.speech.tts.TextToSpeech;
-          import android.speech.RecognizerIntent;
-          import android.speech.SpeechRecognizer;
-          import android.speech.RecognitionListener;
-          import android.support.v4.media.session.MediaSessionCompat;
-          import android.support.v4.media.session.PlaybackStateCompat;
-          import android.support.v4.media.MediaMetadataCompat;
-          import java.util.ArrayList;
-          import java.util.Locale;
-          __BIOMETRIC_IMPORTS__
+          main_activity_java = f"""package {package_id};
           import com.getcapacitor.BridgeActivity;
-          import __PACKAGE_ID__.R;
-
-          public class MainActivity extends BridgeActivity {
-              WebView mWebView;
-              public static MainActivity sInstance;
-              Process phpProcess;
-              TextToSpeech mTTS;
-              SpeechRecognizer mSpeechRecognizer;
-              private boolean doubleBackToExitPressedOnce = false;
-              
-              // FIXED: Explicitly instantiating Handler with UI Looper to bypass compilation warnings [1]
-              private android.os.Handler mPollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-              
-              private Runnable mPollRunnable = new Runnable() {
-                  @Override
-                  public void run() {
-                      if (mWebView != null) {
-                          mWebView.evaluateJavascript("javascript:(function(){ var audio = window.currentAudio || (typeof currentAudio !== 'undefined' ? currentAudio : null); if(audio) { var name = 'HopFile Player'; var el = document.getElementById('playerTrackName'); if(el) name = el.textContent; return audio.currentTime + ',' + audio.duration + ',' + audio.paused + ',' + name; } return ''; })()", new ValueCallback<String>() {
-                              @Override
-                              public void onReceiveValue(String value) {
-                                  if (value != null && !value.equals("null") && !value.isEmpty()) {
-                                      String clean = value.replace(String.valueOf('"'), "");
-                                      if (!clean.trim().isEmpty()) {
-                                          String[] parts = clean.split(",");
-                                          if (parts.length >= 4) {
-                                              try {
-                                                  double currentTime = Double.parseDouble(parts[0]);
-                                                  double duration = Double.parseDouble(parts[1]);
-                                                  boolean paused = Boolean.parseBoolean(parts[2]);
-                                                  String trackName = parts[3];
-                                                  updateMediaSessionState(trackName, currentTime, duration, !paused);
-                                              } catch (Exception e) {
-                                                  e.printStackTrace();
-                                              }
-                                          }
-                                      }
-                                  }
-                              }
-                          });
-                      }
-                      mPollHandler.postDelayed(this, 1000);
-                  }
-              };
-
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  sInstance = this;
-
-                  if (__KEEP_SCREEN_ON__) {
-                      getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                  }
-                  if (__SECURE_WINDOW__) {
-                      getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
-                  }
-
-                  // Establish secure interface link on initialized Capacitor WebView element [1]
-                  mWebView = this.getBridge().getWebView();
-                  WebSettings webSettings = mWebView.getSettings();
-                  webSettings.setJavaScriptEnabled(true);
-                  webSettings.setDomStorageEnabled(true);
-                  webSettings.setDatabaseEnabled(true);
-                  webSettings.setAllowFileAccess(true);
-                  webSettings.setAllowContentAccess(true);
-                  webSettings.setGeolocationEnabled(__GEOLOCATION_ENABLED__);
-                  webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-                  
-                  mWebView.addJavascriptInterface(new WebAppInterface(this), "AndroidApp");
-                  
-                  if (__CLIPBOARD_ENABLED__) {
-                      mWebView.addJavascriptInterface(new ClipboardInterface(this), "AndroidClipboard");
-                  }
-
-                  mTTS = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
-                      @Override
-                      public void onInit(int status) {
-                          if (status == TextToSpeech.SUCCESS) {
-                              mTTS.setLanguage(Locale.US);
-                          }
-                      }
-                  });
-
-                  createNotificationChannels();
-                  __PERMISSION_MANAGER__
-
-                  mWebView.setDownloadListener(new DownloadListener() {
-                      @Override
-                      public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-                          if (!__FILE_TRANSFER_ENABLED__) {
-                              return;
-                          }
-                          if (url.startsWith("blob:") || url.startsWith("data:")) {
-                              return;
-                          }
-                          DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                          request.setMimeType(mimetype);
-                          String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
-                          request.setTitle(fileName);
-                          request.setDescription("Downloading target assets...");
-                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-                          DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                          if (dm != null) {
-                              dm.enqueue(request);
-                              Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
-                          }
-                      }
-                  });
-
-                  __BIOMETRIC_INIT_LOGIC__
-
-                  if (__PHP_SUPPORT__) {
-                      copyAssetFolder("", getFilesDir().getAbsolutePath() + "/www");
-                      startPhpServer(__PHP_PORT__);
-                      // Force local server redirection
-                      mWebView.postDelayed(new Runnable() {
-                          @Override
-                          public void run() {
-                              mWebView.loadUrl("http://127.0.0.1:__PHP_PORT__/__HOMEPAGE__");
-                          }
-                      }, 500);
-                  }
-              }
-
-              private void copyAssetFolder(String srcFolder, String destPath) {
-                  try {
-                      String[] files = getAssets().list(srcFolder);
-                      if (files == null) return;
-                      File destDir = new File(destPath);
-                      if (!destDir.exists()) destDir.mkdirs();
-                      for (String file : files) {
-                          String srcFile = srcFolder.isEmpty() ? file : srcFolder + "/" + file;
-                          String destFile = destPath + "/" + file;
-                          String[] subFiles = getAssets().list(srcFile);
-                          if (subFiles != null && subFiles.length > 0) {
-                              copyAssetFolder(srcFile, destFile);
-                          } else {
-                              copyAsset(srcFile, destFile);
-                          }
-                      }
-                  } catch (Exception e) {
-                      e.printStackTrace();
-                  }
-              }
-
-              private void copyAsset(String srcFile, String destFile) {
-                  try (InputStream in = getAssets().open(srcFile);
-                       OutputStream out = new FileOutputStream(destFile)) {
-                      byte[] buffer = new byte[8192];
-                      int read;
-                      while ((read = in.read(buffer)) != -1) {
-                          out.write(buffer, 0, read);
-                      }
-                  } catch (Exception e) {
-                      e.printStackTrace();
-                  }
-              }
-
-              private void startPhpServer(final int port) {
-                  new Thread(new Runnable() {
-                      @Override
-                      public void run() {
-                          try {
-                              String nativeDir = getApplicationInfo().nativeLibraryDir;
-                              String phpBinary = nativeDir + "/libphp.so";
-                              String docRoot = getFilesDir().getAbsolutePath() + "/www";
-
-                              File binaryFile = new File(phpBinary);
-                              if (binaryFile.exists()) {
-                                  binaryFile.setExecutable(true, false);
-                              }
-
-                              ProcessBuilder pb = new ProcessBuilder(
-                                  phpBinary,
-                                  "-S", "127.0.0.1:" + port,
-                                  "-t", docRoot
-                              );
-                              pb.directory(new File(docRoot));
-                              pb.redirectErrorStream(true);
-                              phpProcess = pb.start();
-
-                              InputStream is = phpProcess.getInputStream();
-                              BufferedReader reader = new BufferedReader(new InputStreamReader(is));
-                              String line;
-                              while ((line = reader.readLine()) != null) {
-                                  android.util.Log.d("PHPServer", line);
-                              }
-                          } catch (Exception e) {
-                              e.printStackTrace();
-                          }
-                      }
-                  }).start();
-              }
-
-              private void createNotificationChannels() {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                      if (manager == null) return;
-
-                      NotificationChannel defaultChan = new NotificationChannel("default", "App Channel", NotificationManager.IMPORTANCE_DEFAULT);
-                      manager.createNotificationChannel(defaultChan);
-
-                      NotificationChannel mediaChan = new NotificationChannel("media_channel", "Media Control", NotificationManager.IMPORTANCE_LOW);
-                      manager.createNotificationChannel(mediaChan);
-
-                      NotificationChannel silentChan = new NotificationChannel("silent_channel", "Silent Notifications", NotificationManager.IMPORTANCE_MIN);
-                      manager.createNotificationChannel(silentChan);
-
-                      NotificationChannel highChan = new NotificationChannel("high_importance", "Urgent Updates", NotificationManager.IMPORTANCE_HIGH);
-                      manager.createNotificationChannel(highChan);
-                  }
-              }
-
-              public void showNotification(String title, String message) {
-                  NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
-                          .setSmallIcon(getApplicationInfo().icon)
-                          .setContentTitle(title)
-                          .setContentText(message)
-                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
-                          .setAutoCancel(true);
-
-                  NotificationManagerCompat manager = NotificationManagerCompat.from(this);
-                  manager.notify((int) System.currentTimeMillis(), builder.build());
-              }
-
-              private void updateMediaSessionState(String trackName, double currentTime, double duration, boolean isPlaying) {
-                  Intent intent = new Intent(this, ForegroundService.class);
-                  intent.setAction("UPDATE_PROGRESS");
-                  intent.putExtra("task_type", "media");
-                  intent.putExtra("trackName", trackName);
-                  intent.putExtra("currentTime", (long)(currentTime * 1000));
-                  intent.putExtra("duration", (long)(duration * 1000));
-                  intent.putExtra("isPlaying", isPlaying);
-                  startService(intent);
-              }
-
-              public void triggerWebAction(final String action) {
-                  runOnUiThread(new Runnable() {
-                      @Override
-                      public void run() {
-                          if (mWebView != null) {
-                              if ("PREV".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('PREV_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex - 1 + items.length) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=playTrack]'); if(playBtn) playBtn.click(); } })()");
-                              } else if ("PLAY_PAUSE".equals(action)) {
-                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerPlayPauseBtn'); if(btn) btn.click();");
-                              } else if ("NEXT".equals(action)) {
-                                  mWebView.loadUrl("javascript:(function(){ if(window.onNotificationAction){ window.onNotificationAction('NEXT_ACTION'); return; } var currentNameEl = document.getElementById('playerTrackName'); if(!currentNameEl) return; var currentName = currentNameEl.textContent; var items = document.querySelectorAll('.track-item'); if(items.length <= 1) return; var currentIndex = -1; for(var i=0; i<items.length; i++){ var nameEl = items[i].querySelector('.track-name'); if(nameEl && nameEl.textContent === currentName){ currentIndex = i; break; } } if(currentIndex !== -1){ var targetIndex = (currentIndex + 1) % items.length; var playBtn = items[targetIndex].querySelector('.action-btn[onclick^=playTrack]'); if(playBtn) playBtn.click(); } })()");
-                              } else if ("STOP".equals(action)) {
-                                  mWebView.loadUrl("javascript:var btn = document.getElementById('playerStopBtn'); if(btn) btn.click();");
-                              }
-                          }
-                      }
-                  });
-              }
-
-              @Override
-              public void onBackPressed() {
-                  mWebView.evaluateJavascript("javascript:if(typeof window.onBackPressed === 'function'){window.onBackPressed();}else{'default';}", new ValueCallback<String>() {
-                      @Override
-                      public void onReceiveValue(String value) {
-                          if (value == null || value.equals(String.valueOf((char)34) + "default" + String.valueOf((char)34)) || value.equals("null") || value.equals("false")) {
-                              if (mWebView.canGoBack()) {
-                                  mWebView.goBack();
-                              } else {
-                                  if (__DOUBLE_BACK_EXIT__) {
-                                      if (doubleBackToExitPressedOnce) {
-                                          finish();
-                                          return;
-                                      }
-                                      doubleBackToExitPressedOnce = true;
-                                      Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
-                                      new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                                          @Override
-                                          public void run() {
-                                              doubleBackToExitPressedOnce = false;
-                                          }
-                                      }, 2000);
-                                  } else {
-                                      finish();
-                                  }
-                              }
-                          }
-                      }
-                  });
-              }
-
-              // FIXED: Explicitly overridden onDestroy with public visibility [1]
-              @Override
-              public void onDestroy() {
-                  mPollHandler.removeCallbacks(mPollRunnable);
-                  if (phpProcess != null) phpProcess.destroy();
-                  if (mTTS != null) {
-                      mTTS.stop();
-                      mTTS.shutdown();
-                  }
-                  super.onDestroy();
-              }
-
-              public static class WebAppInterface {
-                  private MainActivity mContext;
-                  public WebAppInterface(MainActivity context) { this.mContext = context; }
-
-                  @JavascriptInterface
-                  public void speak(String text) {
-                      if (mContext.mTTS != null) {
-                          mContext.mTTS.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID");
-                      }
-                  }
-
-                  @JavascriptInterface
-                  public void showNotification(String title, String message) {
-                      mContext.showNotification(title, message);
-                  }
-
-                  @JavascriptInterface
-                  public void startMediaNotification(String trackName, String artistName, boolean isPlaying) {
-                      Intent serviceIntent = new Intent(mContext, ForegroundService.class);
-                      serviceIntent.putExtra("task_type", "media");
-                      serviceIntent.putExtra("trackName", trackName);
-                      serviceIntent.putExtra("artistName", artistName);
-                      serviceIntent.putExtra("isPlaying", isPlaying);
-                      mContext.startService(serviceIntent);
-                      mContext.mPollHandler.removeCallbacks(mContext.mPollRunnable);
-                      mContext.mPollHandler.post(mContext.mPollRunnable);
-                  }
-
-                  @JavascriptInterface
-                  public void stopMediaNotification() {
-                      mContext.mPollHandler.removeCallbacks(mContext.mPollRunnable);
-                      Intent serviceIntent = new Intent(mContext, ForegroundService.class);
-                      mContext.stopService(serviceIntent);
-                  }
-              }
-
-              public static class ClipboardInterface {
-                  private Context mContext;
-                  public ClipboardInterface(Context context) { this.mContext = context; }
-
-                  @JavascriptInterface
-                  public void copyToClipboard(String text) {
-                      ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
-                      ClipData clip = ClipData.newPlainText("Copied Text", text);
-                      if (clipboard != null) {
-                          clipboard.setPrimaryClip(clip);
-                      }
-                  }
-              }
-
-              public static class NotificationReceiver extends android.content.BroadcastReceiver {
-                  @Override
-                  public void onReceive(android.content.Context context, Intent intent) {
-                      String title = intent.getStringExtra("title");
-                      String message = intent.getStringExtra("message");
-                      NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "default")
-                              .setSmallIcon(context.getApplicationInfo().icon)
-                              .setContentTitle(title)
-                              .setContentText(message)
-                              .setAutoCancel(true);
-                      NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                      if (manager != null) manager.notify((int)System.currentTimeMillis(), builder.build());
-                  }
-              }
-
-              public static class ForegroundService extends android.app.Service {
-                  private android.support.v4.media.session.MediaSessionCompat mMediaSession;
-
-                  @Override
-                  public void onCreate() {
-                      super.onCreate();
-                      mMediaSession = new android.support.v4.media.session.MediaSessionCompat(this, "MediaPlayback");
-                      mMediaSession.setActive(true);
-                  }
-
-                  @Override
-                  public int onStartCommand(Intent intent, int flags, int startId) {
-                      if (intent == null) return START_NOT_STICKY;
-                      String action = intent.getAction();
-                      if (action != null) {
-                          if ("ACTION_PREV".equals(action)) {
-                              if (MainActivity.sInstance != null) MainActivity.sInstance.triggerWebAction("PREV");
-                          } else if ("ACTION_TOGGLE_PLAY".equals(action)) {
-                              if (MainActivity.sInstance != null) MainActivity.sInstance.triggerWebAction("PLAY_PAUSE");
-                          } else if ("ACTION_NEXT".equals(action)) {
-                              if (MainActivity.sInstance != null) MainActivity.sInstance.triggerWebAction("NEXT");
-                          } else if ("ACTION_STOP".equals(action)) {
-                              if (MainActivity.sInstance != null) MainActivity.sInstance.triggerWebAction("STOP");
-                              stopSelf();
-                          }
-                      }
-                      if ("UPDATE_PROGRESS".equals(action)) {
-                          long currentTime = intent.getLongExtra("currentTime", 0);
-                          long duration = intent.getLongExtra("duration", 0);
-                          boolean isPlaying = intent.getBooleanExtra("isPlaying", true);
-                          String trackName = intent.getStringExtra("trackName");
-                          updateMediaSession(trackName, isPlaying, currentTime, duration);
-                      }
-                      return START_STICKY;
-                  }
-
-                  private void updateMediaSession(String trackName, boolean isPlaying, long currentTimeMs, long durationMs) {
-                      android.support.v4.media.MediaMetadataCompat.Builder metadataBuilder = new android.support.v4.media.MediaMetadataCompat.Builder();
-                      metadataBuilder.putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE, trackName);
-                      metadataBuilder.putLong(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
-                      mMediaSession.setMetadata(metadataBuilder.build());
-
-                      android.support.v4.media.session.PlaybackStateCompat.Builder stateBuilder = new android.support.v4.media.session.PlaybackStateCompat.Builder();
-                      int state = isPlaying ? android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING : android.support.v4.media.session.PlaybackStateCompat.STATE_PAUSED;
-                      stateBuilder.setState(state, currentTimeMs, 1.0f);
-                      mMediaSession.setPlaybackState(stateBuilder.build());
-
-                      Intent playIntent = new Intent(this, ForegroundService.class).setAction("ACTION_TOGGLE_PLAY");
-                      android.app.PendingIntent pPlay = android.app.PendingIntent.getService(this, 11, playIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-
-                      android.widget.RemoteViews collapsedViews = new android.widget.RemoteViews(getPackageName(), R.layout.custom_media_collapsed);
-                      collapsedViews.setTextViewText(R.id.media_track_title, trackName);
-                      collapsedViews.setOnClickPendingIntent(R.id.btn_play_pause, pPlay);
-
-                      NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "media_channel")
-                              .setSmallIcon(getApplicationInfo().icon)
-                              .setCustomContentView(collapsedViews)
-                              .setOngoing(isPlaying);
-
-                      startForeground(2002, builder.build());
-                  }
-
-                  @Override
-                  public void onDestroy() {
-                      if (mMediaSession != null) mMediaSession.release();
-                      super.onDestroy();
-                  }
-
-                  @Override
-                  public android.os.IBinder onBind(Intent intent) { return null; }
-              }
-          }
+          public class MainActivity extends BridgeActivity {{}}
           """
-          
-          # Setup Runtime Java Permissions
-          permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              permissions.add("android.permission.POST_NOTIFICATIONS");
-              permissions.add("android.permission.READ_MEDIA_IMAGES");
-              permissions.add("android.permission.READ_MEDIA_AUDIO");
-              permissions.add("android.permission.READ_MEDIA_VIDEO");
-          }
-          """
-          if camera_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
-          if microphone_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
-          if local_storage_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
-          if location_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
-
-          permission_manager_block += """
-          if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-              ArrayList<String> remaining = new ArrayList<>();
-              for (String p : permissions) {
-                  if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
-                      remaining.add(p);
-                  }
-              }
-              if (!remaining.isEmpty()) {
-                  requestPermissions(remaining.toArray(new String[0]), 101);
-              }
-          }
-          """
-          
-          main_activity = main_activity_java_template.replace("__PACKAGE_ID__", package_id)
-          main_activity = main_activity.replace("__PHP_SUPPORT__", "true" if php_support else "false")
-          main_activity = main_activity.replace("__PHP_PORT__", str(php_port))
-          main_activity = main_activity.replace("__HOMEPAGE__", homepage)
-          main_activity = main_activity.replace("__KEEP_SCREEN_ON__", "true" if keep_screen_on_enabled else "false")
-          main_activity = main_activity.replace("__SECURE_WINDOW__", "true" if secure_window_enabled else "false")
-          main_activity = main_activity.replace("__GEOLOCATION_ENABLED__", "true" if location_enabled else "false")
-          main_activity = main_activity.replace("__EXTERNAL_BROWSER_ENABLED__", "true" if external_browser_enabled else "false")
-          main_activity = main_activity.replace("__FILE_TRANSFER_ENABLED__", "true" if file_transfer_enabled else "false")
-          main_activity = main_activity.replace("__CLIPBOARD_ENABLED__", "true" if clipboard_enabled else "false")
-          main_activity = main_activity.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
-          main_activity = main_activity.replace("__PERMISSION_MANAGER__", permission_manager_block)
-
-          # Biometrics placeholder replacements configuration with fixed typo [1]
-          if biometric_enabled:
-              biometric_imports = "import androidx.biometric.BiometricPrompt;\nimport androidx.biometric.BiometricManager;"
-              biometric_logic = """
-              BiometricManager biometricManager = BiometricManager.from(this);
-              if (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS) {
-                  java.util.concurrent.Executor executor = ContextCompat.getMainExecutor(this);
-                  BiometricPrompt biometricPrompt = new BiometricPrompt(MainActivity.this, executor, new BiometricPrompt.AuthenticationCallback() {
-                      @Override
-                      public void onAuthenticationError(int errorCode, CharSequence errString) {
-                          super.onAuthenticationError(errorCode, errString);
-                          Toast.makeText(getApplicationContext(), "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
-                          finish();
-                      }
-                      @Override
-                      public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                          super.onAuthenticationSucceeded(result);
-                          Toast.makeText(getApplicationContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show();
-                      }
-                      @Override
-                      public void onAuthenticationFailed() {
-                          super.onAuthenticationFailed();
-                          Toast.makeText(getApplicationContext(), "Authentication failed", Toast.LENGTH_SHORT).show();
-                      }
-                  });
-                  BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
-                          .setTitle("Biometric Login")
-                          .setSubtitle("Log in using your credentials")
-                          .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                          .build();
-                  biometricPrompt.authenticate(promptInfo);
-              }
-              """
-              main_activity = main_activity.replace("__BIOMETRIC_IMPORTS__", biometric_imports)
-              main_activity = main_activity.replace("__BIOMETRIC_INIT_LOGIC__", biometric_logic)
-          else:
-              main_activity = main_activity.replace("__BIOMETRIC_IMPORTS__", "")
-              main_activity = main_activity.replace("__BIOMETRIC_INIT_LOGIC__", "")
-
           with open(f"{java_dir}/MainActivity.java", "w") as f:
-              f.write(main_activity.strip())
-
-          # Setup custom launcher icon using Pillow if assets available
-          icon_src = "www/_app_icon.png"
-          if os.path.exists(icon_src):
-              sizes = {
-                  "mipmap-mdpi": 48,
-                  "mipmap-hdpi": 72,
-                  "mipmap-xhdpi": 96,
-                  "mipmap-xxhdpi": 144,
-                  "mipmap-xxxhdpi": 192
-              }
-              try:
-                  with Image.open(icon_src) as img:
-                      for folder, size in sizes.items():
-                          dest_dir = f"android/app/src/main/res/{folder}"
-                          os.makedirs(dest_dir, exist_ok=True)
-                          resized_img = img.resize((size, size), Image.Resampling.LANCZOS)
-                          resized_img.save(f"{dest_dir}/ic_launcher.png")
-              except Exception as e:
-                  print(f"Error compiling custom launcher icon: {e}")
+              f.write(main_activity_java)
           EOF
           python3 build_assets.py
 
@@ -1384,44 +330,19 @@ jobs:
           echo "Running Capacitor Sync..."
           npx cap sync android
 
-      - name: Generate Automated Release Keystore
-        run: |
-          echo "Generating automated release signing key..."
-          keytool -genkey -v -keystore android/app/release.keystore -alias appalias -keyalg RSA -keysize 2048 -validity 10000 -storepass testpassword -keypass testpassword -dname "CN=HopFile, OU=Dev, O=HopFile, L=Dev, S=Dev, C=US"
-          
-          # Patch app/build.gradle to apply automatic signing [1]
-          cat << 'EOF' >> android/app/build.gradle
-          
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file("release.keystore")
-                      storePassword "testpassword"
-                      keyAlias "appalias"
-                      keyPassword "testpassword"
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          EOF
-
-      - name: Run Release APK Compilation Task
+      - name: Run Debug APK Compilation Task
         run: |
           cd android
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
 
-      - name: Package Signed APK with Credits Document [1]
+      - name: Package Debug APK with Credits Document [1]
         run: |
           CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
           ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
           
           # Inject clean credit properties into output directory [1]
-          cat << 'EOF' > android/app/build/outputs/apk/release/credits.txt
+          cat << 'EOF' > android/app/build/outputs/apk/debug/credits.txt
           ==================================================
           HopFile Editor - Release Staging Package
           ==================================================
@@ -1435,8 +356,8 @@ jobs:
           ==================================================
           EOF
           
-          cd android/app/build/outputs/apk/release/
-          mv app-release.apk $APK_NAME
+          cd android/app/build/outputs/apk/debug/
+          mv app-debug.apk $APK_NAME
           zip -r $ZIP_NAME $APK_NAME credits.txt
 
       - name: Generate Dynamic Release Tag
@@ -1456,8 +377,8 @@ jobs:
             - **Package ID:** `${{ env.PACKAGE_ID }}`
             - **Build ID:** `${{ github.run_number }}`
           files: |
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/release/*.zip
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/debug/*.zip
           draft: false
           prerelease: false
         env:
