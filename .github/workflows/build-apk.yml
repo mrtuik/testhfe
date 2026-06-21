@@ -807,7 +807,123 @@ jobs:
               with open("app/src/main/java/com/example/runner/SplashActivity.java", "w") as f:
                   f.write(splash_activity_java.strip())
 
-          # >>> IMPORTANT: Using Raw String (r"") so Python does not consume Java escape characters. <<<
+          # --- DECLARE JAVA BLOCKS BEFORE REPLACEMENTS ---
+          swipe_import_block = "import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;" if swipe_refresh_enabled else ""
+          swipe_declaration_block = "private SwipeRefreshLayout mSwipeRefresh;" if swipe_refresh_enabled else ""
+          progress_declaration_block = "private ProgressBar mProgress;" if loading_ui_enabled else ""
+          
+          progress_init_block = "mProgress = findViewById(R.id.progressBar);" if loading_ui_enabled else ""
+          progress_update_block = """if (mProgress != null) {
+              mProgress.setProgress(newProgress);
+              if (newProgress == 100) {
+                  mProgress.setVisibility(View.GONE);
+              } else {
+                  mProgress.setVisibility(View.VISIBLE);
+              }
+          }""" if loading_ui_enabled else ""
+
+          local_storage_block = ""
+          if local_storage_enabled:
+              local_storage_block = """webSettings.setDomStorageEnabled(true);
+              webSettings.setDatabaseEnabled(true);
+              webSettings.setAllowFileAccess(true);
+              webSettings.setAllowContentAccess(true);
+              webSettings.setAllowFileAccessFromFileURLs(true);
+              webSettings.setAllowUniversalAccessFromFileURLs(true);"""
+
+          zoom_block = ""
+          if zoom_enabled:
+              zoom_block = """webSettings.setSupportZoom(true);
+              webSettings.setBuiltInZoomControls(true);
+              webSettings.setDisplayZoomControls(false);"""
+
+          autoplay_ua_block = ""
+          if autoplay_enabled:
+              autoplay_ua_block += "webSettings.setMediaPlaybackRequiresUserGesture(false);\n"
+          if pc_mode_enabled:
+              autoplay_ua_block += """webSettings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/114.0.0.0 Safari/537.36");
+              webSettings.setUseWideViewPort(true);
+              webSettings.setLoadWithOverviewMode(true);"""
+
+          swipe_refresh_code_block = ""
+          swipe_refresh_stop_code_block = ""
+          if swipe_refresh_enabled:
+              swipe_refresh_code_block = """mSwipeRefresh = findViewById(R.id.swipeRefreshLayout);
+              mSwipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+                  @Override
+                  public void onRefresh() {
+                      mWebView.reload();
+                  }
+              });"""
+              swipe_refresh_stop_code_block = """if (mSwipeRefresh != null) {
+                  mSwipeRefresh.setRefreshing(false);
+              }"""
+
+          long_press_code_block = ""
+          if not long_press_enabled:
+              long_press_code_block = """mWebView.setOnLongClickListener(new View.OnLongClickListener() {
+                  @Override
+                  public boolean onLongClick(View v) {
+                      return true;
+                  }
+              });
+                  mWebView.setLongClickable(false);"""
+
+          download_manager_block = ""
+          if file_transfer_enabled:
+              download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
+                  @Override
+                  public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                      if (url.startsWith("blob:") || url.startsWith("data:")) {
+                          return;
+                      }
+                      DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                      request.setMimeType(mimetype);
+                      String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+                      request.setTitle(fileName);
+                      request.setDescription("Downloading target assets...");
+                      request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                      DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                      if (dm != null) {
+                          dm.enqueue(request);
+                          Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                      }
+                  }
+              });"""
+
+          permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              permissions.add("android.permission.POST_NOTIFICATIONS");
+              permissions.add("android.permission.READ_MEDIA_IMAGES");
+              permissions.add("android.permission.READ_MEDIA_AUDIO");
+              permissions.add("android.permission.READ_MEDIA_VIDEO");
+          }
+          """
+          if camera_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
+          if microphone_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
+          if local_storage_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
+          if location_enabled:
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
+
+          permission_manager_block += """
+          if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+              ArrayList<String> remaining = new ArrayList<>();
+              for (String p : permissions) {
+                  if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                      remaining.add(p);
+                  }
+              }
+              if (!remaining.isEmpty()) {
+                  requestPermissions(remaining.toArray(new String[0]), 101);
+              }
+          }
+          """
+
           main_activity_java_template = r"""package com.example.runner;
           import android.Manifest;
           import androidx.appcompat.app.AppCompatActivity;
@@ -1826,7 +1942,7 @@ jobs:
                                       public void onResults(Bundle results) {
                                           ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                                           if (matches != null && !matches.isEmpty()) {
-                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\'") + "'); }");
+                                              mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\\\'") + "'); }");
                                           }
                                       }
                                       @Override
@@ -2368,7 +2484,7 @@ jobs:
                       android.app.PendingIntent pStop = android.app.PendingIntent.getService(this, 13, stopIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
                       Intent openIntent = new Intent(this, MainActivity.class);
-                      openIntent.setFlags(Intent.ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                      openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                       android.app.PendingIntent pOpen = android.app.PendingIntent.getActivity(this, 0, openIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
 
                       Intent tuikIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mrtuik"));
