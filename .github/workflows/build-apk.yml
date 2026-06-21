@@ -54,53 +54,53 @@ jobs:
           unzip -o "${ZIP_NAME}" -d raw_assets/
           
           if [ ! -f raw_assets/app_config.json ]; then
-              echo "Creating missing app_config.json fallback parameters..."
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json (Exact Pinned Versions)
+      - name: Write Automated package.json (PERMANENT 404 ETARGET FIX)
         run: |
+          # Using "latest" for all community plugins guarantees NPM never throws 404
           cat << 'EOF' > package.json
           {
             "name": "capacitor-app",
             "version": "1.0.0",
             "description": "Capacitor App built with HopFile Editor",
             "dependencies": {
-              "@capacitor/core": "6.2.0",
-              "@capacitor/android": "6.2.0",
-              "@capacitor/app": "6.0.2",
-              "@capacitor/app-launcher": "6.0.2",
-              "@capacitor/action-sheet": "6.0.2",
-              "@capacitor/browser": "6.0.3",
-              "@capacitor/camera": "6.1.2",
-              "@capacitor/clipboard": "6.0.2",
-              "@capacitor/device": "6.0.2",
-              "@capacitor/dialog": "6.0.2",
-              "@capacitor/filesystem": "6.0.3",
-              "@capacitor/geolocation": "6.1.0",
-              "@capacitor/haptics": "6.0.2",
-              "@capacitor/keyboard": "6.0.3",
-              "@capacitor/local-notifications": "6.2.0",
-              "@capacitor/motion": "6.0.2",
-              "@capacitor/network": "6.0.3",
-              "@capacitor/preferences": "6.0.3",
-              "@capacitor/push-notifications": "6.0.4",
-              "@capacitor/share": "6.0.3",
-              "@capacitor/splash-screen": "6.0.3",
-              "@capacitor/status-bar": "6.0.2",
-              "@capacitor/text-zoom": "6.0.2",
-              "@capacitor/toast": "6.0.3",
-              "@capacitor-community/admob": "6.0.0",
-              "@capacitor-community/text-to-speech": "5.0.1",
-              "@capawesome-team/capacitor-file-opener": "6.0.0",
-              "@capawesome/capacitor-file-picker": "6.2.0",
-              "@capawesome/capacitor-screen-orientation": "6.0.1",
-              "@capawesome-team/capacitor-android-foreground-service": "6.1.0",
-              "@capgo/capacitor-native-audio": "6.0.1",
-              "@capgo/capacitor-background-task": "6.0.0"
+              "@capacitor/core": "^6.2.0",
+              "@capacitor/android": "^6.2.0",
+              "@capacitor/app": "^6.0.0",
+              "@capacitor/app-launcher": "^6.0.0",
+              "@capacitor/action-sheet": "^6.0.0",
+              "@capacitor/browser": "^6.0.0",
+              "@capacitor/camera": "^6.0.0",
+              "@capacitor/clipboard": "^6.0.0",
+              "@capacitor/device": "^6.0.0",
+              "@capacitor/dialog": "^6.0.0",
+              "@capacitor/filesystem": "^6.0.0",
+              "@capacitor/geolocation": "^6.0.0",
+              "@capacitor/haptics": "^6.0.0",
+              "@capacitor/keyboard": "^6.0.0",
+              "@capacitor/local-notifications": "^6.0.0",
+              "@capacitor/motion": "^6.0.0",
+              "@capacitor/network": "^6.0.0",
+              "@capacitor/preferences": "^6.0.0",
+              "@capacitor/push-notifications": "^6.0.0",
+              "@capacitor/share": "^6.0.0",
+              "@capacitor/splash-screen": "^6.0.0",
+              "@capacitor/status-bar": "^6.0.0",
+              "@capacitor/text-zoom": "^6.0.0",
+              "@capacitor/toast": "^6.0.0",
+              "@capacitor-community/admob": "latest",
+              "@capacitor-community/text-to-speech": "latest",
+              "@capawesome-team/capacitor-file-opener": "latest",
+              "@capawesome/capacitor-file-picker": "latest",
+              "@capawesome/capacitor-screen-orientation": "latest",
+              "@capawesome-team/capacitor-android-foreground-service": "latest",
+              "@capgo/capacitor-native-audio": "latest",
+              "@capgo/capacitor-background-task": "latest"
             },
             "devDependencies": {
-              "@capacitor/cli": "6.2.0"
+              "@capacitor/cli": "^6.2.0"
             }
           }
           EOF
@@ -110,7 +110,7 @@ jobs:
         id: npm-cache
         with:
           path: node_modules
-          key: ${{ runner.os }}-node-capacitor-6-v2
+          key: ${{ runner.os }}-node-capacitor-6-latest-v1
 
       - name: Install Dependencies (Offline Preferred)
         if: steps.npm-cache.outputs.cache-hit != 'true'
@@ -126,8 +126,9 @@ jobs:
           cp -r raw_assets/* www/
           npx cap add android
 
-      - name: Decode google-services.json (FCM / Firebase)
+      - name: Setup Firebase google-services.json
         run: |
+          mkdir -p android/app
           cat << 'EOF' > android/app/google-services.json
           {
             "project_info": { "project_number": "123456789012", "project_id": "hopfile-project" },
@@ -158,14 +159,19 @@ jobs:
           screen_rot = config.get("screenRotation", "auto")
           admob_app_id = os.environ.get("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
 
-          # Update the dummy google-services.json with correct package_id
           gs_path = "android/app/google-services.json"
           if os.path.exists(gs_path):
               gs_data = json.load(open(gs_path))
               gs_data["client"][0]["client_info"]["android_client_info"]["package_name"] = package_id
               open(gs_path, "w").write(json.dumps(gs_data))
 
-          # Gradle template using targetSdk 35
+          root_gradle = "android/build.gradle"
+          if os.path.exists(root_gradle):
+              txt = open(root_gradle).read()
+              if "com.google.gms:google-services" not in txt:
+                  txt = txt.replace("dependencies {", "dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'", 1)
+                  open(root_gradle, "w").write(txt)
+
           app_build_gradle_template = f"""
           apply plugin: 'com.android.application'
           apply plugin: 'com.google.gms.google-services'
@@ -185,13 +191,8 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }}
               buildTypes {{
-                  release {{
-                      minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                  }}
-                  debug {{
-                      minifyEnabled false
-                  }}
+                  release {{ minifyEnabled false }}
+                  debug {{ minifyEnabled false }}
               }}
           }}
           dependencies {{
@@ -204,7 +205,6 @@ jobs:
           """
           open("android/app/build.gradle", "w").write(app_build_gradle_template.strip())
 
-          # Generate system assets XML Configurations
           os.makedirs("android/app/src/main/res/values", exist_ok=True)
           with open("android/app/src/main/res/values/colors.xml", "w") as f:
               f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n<color name="colorPrimary">{theme_color}</color>\n<color name="colorPrimaryDark">{theme_color}</color>\n<color name="colorAccent">{theme_color}</color>\n<color name="splashBg">{splash_bg}</color>\n</resources>')
@@ -212,45 +212,26 @@ jobs:
           with open("android/app/src/main/res/values/strings.xml", "w") as f:
               f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n<string name="app_name">{app_name}</string>\n<string name="title_activity_main">{app_name}</string>\n<string name="package_name">{package_id}</string>\n</resources>')
 
-          with open("android/app/src/main/res/values/styles.xml", "w") as f:
-              f.write("""<?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
-                  <item name="colorPrimary">@color/colorPrimary</item>
-                  <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-                  <item name="colorAccent">@color/colorAccent</item>
-              </style>
-              <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
-                  <item name="windowActionBar">false</item>
-                  <item name="windowNoTitle">true</item>
-              </style>
-          </resources>""")
-
-          # Setup Android Manifest Injections
-          camera_enabled = config.get("cameraEnabled", True)
-          notifications_enabled = config.get("notificationsEnabled", True)
-          microphone_enabled = config.get("microphoneEnabled", True)
-          location_enabled = config.get("locationEnabled", False)
-          storage_enabled = config.get("localStorageEnabled", True) or config.get("fileTransferEnabled", True)
-          bg_audio_enabled = config.get("backgroundAudioEnabled", True)
-
           perms = ['<uses-permission android:name="android.permission.INTERNET" />',
                    '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+                   '<uses-permission android:name="android.permission.CAMERA" />',
+                   '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+                   '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+                   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+                   '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+                   '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />',
+                   '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
+                   '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
+                   '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />',
+                   '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
+                   '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
+                   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+                   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
                    '<uses-permission android:name="com.google.android.gms.permission.AD_ID" />']
-          if camera_enabled:        perms.append('<uses-permission android:name="android.permission.CAMERA" />')
-          if microphone_enabled:    perms += ['<uses-permission android:name="android.permission.RECORD_AUDIO" />', '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />']
-          if notifications_enabled: perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
-          if storage_enabled:       perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />', '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />', '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />', '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />', '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />']
-          if location_enabled:      perms += ['<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />', '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />']
-          if bg_audio_enabled:      perms += ['<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />', '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />', '<uses-permission android:name="android.permission.WAKE_LOCK" />']
-
+          
           orientation = "portrait" if screen_rot == "portrait" else "landscape" if screen_rot == "landscape" else "unspecified"
           perms_xml = "\n    ".join(perms)
           
-          bg_service = ''
-          if bg_audio_enabled:
-              bg_service = '''<service android:name="dev.robingenz.capacitorjs.plugins.foregroundservice.ForegroundService" android:exported="false" android:foregroundServiceType="mediaPlayback|dataSync" />'''
-
           manifest_template = f"""<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               {perms_xml}
@@ -261,10 +242,10 @@ jobs:
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
-                  android:theme="@style/AppTheme">
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                   
                   <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_app_id}"/>
-                  {bg_service}
+                  <service android:name="dev.robingenz.capacitorjs.plugins.foregroundservice.ForegroundService" android:exported="false" android:foregroundServiceType="dataSync" />
 
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
@@ -273,7 +254,7 @@ jobs:
                       android:exported="true"
                       android:launchMode="singleTop"
                       android:screenOrientation="{orientation}"
-                      android:theme="@style/AppTheme.NoActionBar">
+                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -284,13 +265,11 @@ jobs:
           """
           open("android/app/src/main/AndroidManifest.xml", "w").write(manifest_template)
 
-          # Bridge Activity
           pkg_path = package_id.replace(".", "/")
           java_dir = f"android/app/src/main/java/{pkg_path}"
           os.makedirs(java_dir, exist_ok=True)
           open(f"{java_dir}/MainActivity.java", "w").write(f"package {package_id};\nimport com.getcapacitor.BridgeActivity;\npublic class MainActivity extends BridgeActivity {{}}\n")
           
-          # Setup custom launcher icon using Pillow
           icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
               sizes = { "mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192 }
@@ -308,49 +287,37 @@ jobs:
       - name: Capacitor Sync
         run: npx cap sync android
 
-      - name: Run Debug APK Compilation Task
+      - name: Build Debug APK
         run: |
           cd android
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
-      - name: Package Signed APK with Credits Document
+      - name: Package APK with credits
         run: |
           CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
-          ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
-          
+          ZIP_OUT="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
           cat << 'EOF' > android/app/build/outputs/apk/debug/credits.txt
-          ==================================================
-          HopFile Editor - Release Staging Package
-          ==================================================
-          This package was generated dynamically by HopFile Editor Workspace.
-
-          Credits:
-          HopFile Editor is designed, developed, and maintained by tuik.
-          All rights reserved.
-
-          Thank you for choosing HopFile Editor as your Mobile IDE & Compiler!
-          ==================================================
+          HopFile Editor - Capacitor 6 Build
+          Generated automatically. All rights reserved.
           EOF
-          
           cd android/app/build/outputs/apk/debug/
-          mv app-debug.apk $APK_NAME
-          zip -r $ZIP_NAME $APK_NAME credits.txt
+          mv app-debug.apk "$APK_NAME"
+          zip -r "$ZIP_OUT" "$APK_NAME" credits.txt
 
-      - name: Generate Dynamic Release Tag
+      - name: Generate Release Tag
         id: tag_gen
         run: |
           CLEANED_NAME=$(echo "${APP_NAME}" | tr -cd '[:alnum:]_')
-          TAG="release-${CLEANED_NAME}-${{ github.run_number }}"
-          echo "TAG_NAME=$TAG" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=release-${CLEANED_NAME}-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release and Upload Artifact Target
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine Upgrade).
+            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
             - **Package ID:** `${{ env.PACKAGE_ID }}`
             - **Build ID:** `${{ github.run_number }}`
           files: |
@@ -360,11 +327,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Clean up temporary payload ZIP
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git rm -f "${ZIP_NAME}" || true
-          git commit -m "chore: clean up temporary build payload [skip ci]" || true
-          git push origin main || git push origin master || true
