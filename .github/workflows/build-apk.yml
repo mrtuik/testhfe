@@ -95,12 +95,52 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
+      - name: Write Automated package.json with All Required Plugins [1]
+        run: |
+          cat << 'EOF' > package.json
+          {
+            "name": "webrunner",
+            "version": "1.0.0",
+            "description": "HopFile Editor Capacitor Workspace",
+            "main": "index.js",
+            "dependencies": {
+              "@capacitor/core": "^6.0.0",
+              "@capacitor/android": "^6.0.0",
+              "@capacitor/app": "^6.0.0",
+              "@capacitor/preferences": "^6.0.0",
+              "@capacitor/network": "^6.0.0",
+              "@capacitor/device": "^6.0.0",
+              "@capacitor/status-bar": "^6.0.0",
+              "@capacitor/splash-screen": "^6.0.0",
+              "@capacitor/haptics": "^6.0.0",
+              "@capacitor/keyboard": "^6.0.0",
+              "@capacitor/clipboard": "^6.0.0",
+              "@capacitor/toast": "^6.0.0",
+              "@capacitor/filesystem": "^6.0.0",
+              "@capacitor/camera": "^6.0.0",
+              "@capacitor/share": "^6.0.0",
+              "@capacitor/local-notifications": "^6.0.0",
+              "@capacitor/push-notifications": "^6.0.0",
+              "@capacitor/background-runner": "^6.0.0",
+              "@capawesome/capacitor-file-picker": "^6.0.0",
+              "@capgo/capacitor-native-audio": "^6.0.0",
+              "capacitor-music-controls-plugin": "^6.0.0",
+              "@capacitor-community/text-to-speech": "^6.0.0",
+              "@capacitor-community/speech-recognition": "^6.0.0",
+              "@capacitor-community/admob": "^6.0.0",
+              "@capgo/capacitor-updater": "^6.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^6.0.0"
+            }
+          }
+          EOF
+          
+          # Install all core and custom Capacitor plugins inside the runner
+          npm install
+
       - name: Initialize Capacitor 6 Project Structure
         run: |
-          echo "Initializing Capacitor environment..."
-          npm init -y
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          
           APP_NAME_CONFIG=$(node -e "console.log(require('./raw_assets/app_config.json').appName || '$APP_NAME')")
           PACKAGE_ID_CONFIG=$(node -e "console.log(require('./raw_assets/app_config.json').packageName || '$PACKAGE_ID')")
           
@@ -205,7 +245,7 @@ jobs:
 
           php_support = config.get("phpSupport", True) and has_php_files
 
-          # FIXED: Clean, unified, single-step signed build.gradle template directly in python builder [1]
+          # FIXED: Clean, unified build.gradle template using default debug signing to bypass signingConfig complications [1]
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -218,14 +258,6 @@ jobs:
                   versionCode __VERSION_CODE__
                   versionName "__VERSION_NAME__"
               }
-              signingConfigs {
-                  release {
-                      storeFile file("release.keystore")
-                      storePassword "testpassword"
-                      keyAlias "appalias"
-                      keyPassword "testpassword"
-                  }
-              }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
@@ -234,7 +266,9 @@ jobs:
                   release {
                       minifyEnabled false
                       proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                      signingConfig signingConfigs.release
+                  }
+                  debug {
+                      minifyEnabled false
                   }
               }
           }
@@ -991,11 +1025,11 @@ jobs:
 
               public void showNotification(String title, String message) {
                   NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "default")
-                          .setSmallIcon(getApplicationInfo().icon)
-                          .setContentTitle(title)
-                          .setContentText(message)
-                          .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
-                          .setAutoCancel(true);
+                      .setSmallIcon(getApplicationInfo().icon)
+                      .setContentTitle(title)
+                      .setContentText(message)
+                      .setColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                      .setAutoCancel(true);
 
                   NotificationManagerCompat manager = NotificationManagerCompat.from(this);
                   manager.notify((int) System.currentTimeMillis(), builder.build());
@@ -1062,8 +1096,9 @@ jobs:
                   });
               }
 
+              // FIXED: Changed method visibility to 'public' to override BridgeActivity's public onDestroy [1]
               @Override
-              protected void onDestroy() {
+              public void onDestroy() {
                   mPollHandler.removeCallbacks(mPollRunnable);
                   if (phpProcess != null) phpProcess.destroy();
                   if (mTTS != null) {
@@ -1258,7 +1293,7 @@ jobs:
           main_activity = main_activity.replace("__DOUBLE_BACK_EXIT__", "true" if double_back_exit_enabled else "false")
           main_activity = main_activity.replace("__PERMISSION_MANAGER__", permission_manager_block)
 
-          # Biometrics placeholder replacements configuration with fixed typo
+          # Biometrics placeholder replacements configuration with fixed typo [1]
           if biometric_enabled:
               biometric_imports = "import androidx.biometric.BiometricPrompt;\nimport androidx.biometric.BiometricManager;"
               biometric_logic = """
