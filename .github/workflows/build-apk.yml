@@ -1,4 +1,4 @@
-name: Build APK with Capacitor
+name: Build APK with Capacitor 6 Core
 
 on:
   workflow_dispatch:
@@ -17,7 +17,6 @@ jobs:
       VERSION_NAME: ${{ github.event.client_payload.versionName || '1.0.0' }}
       VERSION_CODE: ${{ github.event.client_payload.versionCode || '1' }}
       ZIP_NAME: ${{ github.event.client_payload.zipName || 'web_payload.zip' }}
-      ADMOB_APP_ID: ${{ vars.ADMOB_APP_ID || 'ca-app-pub-3940256099942544~3347511713' }}
 
     steps:
       - name: Checkout Repository
@@ -60,7 +59,7 @@ jobs:
           include ':app'
           EOF
           
-          # Add Google Services Classpath for Firebase & Push Notifications
+          # Clean build.gradle for official plugins only
           cat << 'EOF' > build.gradle
           buildscript {
               repositories {
@@ -96,9 +95,8 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json (Safe ^6.0.0 Resolution)
+      - name: Write package.json (ONLY Stable Official Capacitor 6 Plugins)
         run: |
-          # ^6.0.0 will dynamically fetch the highest 6.x.x version available without failing
           cat << 'EOF' > package.json
           {
             "name": "capacitor-app",
@@ -108,62 +106,21 @@ jobs:
               "@capacitor/core": "^6.0.0",
               "@capacitor/android": "^6.0.0",
               "@capacitor/app": "^6.0.0",
-              "@capacitor/app-launcher": "^6.0.0",
-              "@capacitor/action-sheet": "^6.0.0",
               "@capacitor/browser": "^6.0.0",
               "@capacitor/camera": "^6.0.0",
               "@capacitor/clipboard": "^6.0.0",
               "@capacitor/device": "^6.0.0",
-              "@capacitor/dialog": "^6.0.0",
               "@capacitor/filesystem": "^6.0.0",
               "@capacitor/geolocation": "^6.0.0",
-              "@capacitor/haptics": "^6.0.0",
               "@capacitor/keyboard": "^6.0.0",
               "@capacitor/local-notifications": "^6.0.0",
-              "@capacitor/motion": "^6.0.0",
               "@capacitor/network": "^6.0.0",
-              "@capacitor/preferences": "^6.0.0",
               "@capacitor/push-notifications": "^6.0.0",
               "@capacitor/share": "^6.0.0",
               "@capacitor/splash-screen": "^6.0.0",
               "@capacitor/status-bar": "^6.0.0",
-              "@capacitor/text-zoom": "^6.0.0",
-              "@capacitor/toast": "^6.0.0",
-              "@capacitor-community/admob": "^6.0.0",
-              "@capacitor-community/apple-sign-in": "^6.0.0",
-              "@capacitor-community/bluetooth-le": "^6.0.0",
-              "@capacitor-community/camera-preview": "^6.0.0",
-              "@capacitor-community/contacts": "^6.0.0",
-              "@capacitor-community/keep-awake": "^5.0.0",
               "@capacitor-community/media": "^6.0.0",
-              "@capacitor-community/sqlite": "^6.0.0",
-              "@capacitor-community/text-to-speech": "^5.0.0",
-              "@capacitor-community/speech-recognition": "^6.0.0",
-              "@capacitor-community/background-geolocation": "^1.0.0",
-              "@capawesome/capacitor-app-update": "^6.0.0",
-              "@capawesome/capacitor-app-shortcuts": "^6.0.0",
-              "@capawesome/capacitor-badge": "^6.0.0",
-              "@capawesome/capacitor-file-picker": "^6.0.0",
-              "@capawesome/capacitor-file-opener": "^6.0.0",
-              "@capawesome/capacitor-mlkit-barcode-scanning": "^6.0.0",
-              "@capawesome/capacitor-nfc": "^6.0.0",
-              "@capawesome/capacitor-screen-orientation": "^6.0.0",
-              "@capawesome-team/capacitor-android-foreground-service": "^6.0.0",
-              "@capawesome/capacitor-firebase-authentication": "^6.0.0",
-              "@capawesome/capacitor-firebase-messaging": "^6.0.0",
-              "@capawesome/capacitor-firebase-firestore": "^6.0.0",
-              "@capgo/capacitor-updater": "^6.0.0",
-              "@capgo/native-audio": "^6.0.0",
-              "@capgo/capacitor-native-biometric": "^6.0.0",
-              "@capgo/inappreview": "^6.0.0",
-              "@capgo/capacitor-social-login": "^6.0.0",
-              "@capgo/capacitor-screen-recorder": "^6.0.0",
-              "@capgo/background-task": "^6.0.0",
-              "@transistorsoft/capacitor-background-fetch": "^6.0.0",
-              "@transistorsoft/capacitor-background-geolocation": "^6.0.0",
-              "capacitor-native-settings": "^6.0.0",
-              "capacitor-video-player": "^6.0.0",
-              "capacitor-music-controls-plugin": "^3.0.0"
+              "@capawesome/capacitor-file-opener": "^6.0.0"
             },
             "devDependencies": {
               "@capacitor/cli": "^6.0.0"
@@ -214,30 +171,22 @@ jobs:
           theme_color = config.get("themeColor", "#4F46E5")
           splash_bg = config.get("splashBgColor", "#111827")
           screen_rot = config.get("screenRotation", "auto")
-          admob_app_id = os.environ.get("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
           has_firebase = os.path.exists("android/app/google-services.json")
 
+          # Dynamic Feature Toggles for Official Plugins
           camera_enabled = config.get("cameraEnabled", True)
           notifications_enabled = config.get("notificationsEnabled", True)
-          microphone_enabled = config.get("microphoneEnabled", True)
+          local_storage_enabled = config.get("localStorageEnabled", True)
           location_enabled = config.get("locationEnabled", False)
-          biometric_enabled = config.get("biometricEnabled", True)
-          storage_enabled = config.get("localStorageEnabled", True) or config.get("fileTransferEnabled", True)
-          bg_audio_enabled = config.get("backgroundAudioEnabled", True)
 
-          # Update root build.gradle for Firebase
-          root_gradle = "android/build.gradle"
-          if os.path.exists(root_gradle):
-              txt = open(root_gradle).read()
-              if has_firebase and "com.google.gms:google-services" not in txt:
-                  txt = txt.replace(
-                      "dependencies {",
-                      "dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'",
-                      1,
-                  )
-                  open(root_gradle, "w").write(txt)
+          # Update the dummy google-services.json with correct package_id
+          gs_path = "android/app/google-services.json"
+          if os.path.exists(gs_path):
+              gs_data = json.load(open(gs_path))
+              gs_data["client"][0]["client_info"]["android_client_info"]["package_name"] = package_id
+              open(gs_path, "w").write(json.dumps(gs_data))
 
-          # Gradle template using targetSdk 35
+          # Cleaned Gradle template using targetSdk 35
           gs_apply = "apply plugin: 'com.google.gms.google-services'" if has_firebase else ""
           app_build_gradle_template = f"""
           apply plugin: 'com.android.application'
@@ -272,9 +221,6 @@ jobs:
               implementation project(':capacitor-android')
               implementation 'androidx.webkit:webkit:1.11.0'
               implementation 'androidx.appcompat:appcompat:1.7.0'
-              implementation 'androidx.media:media:1.7.0'
-              implementation 'androidx.biometric:biometric:1.1.0'
-              implementation 'com.google.android.gms:play-services-ads:23.2.0'
           }}
           """
           open("android/app/build.gradle", "w").write(app_build_gradle_template.strip())
@@ -317,38 +263,17 @@ jobs:
           with open("android/app/src/main/res/values/strings.xml", "w") as f:
               f.write(strings_xml.strip())
 
-          # Setup Android Manifest
+          # Setup Android Manifest Injections for Official Plugins
           perms = ['<uses-permission android:name="android.permission.INTERNET" />',
-                   '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
-                   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
-                   '<uses-permission android:name="com.google.android.gms.permission.AD_ID" />']
+                   '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />']
           if camera_enabled:        perms.append('<uses-permission android:name="android.permission.CAMERA" />')
-          if microphone_enabled:    perms += ['<uses-permission android:name="android.permission.RECORD_AUDIO" />',
-                                              '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />']
-          if notifications_enabled: perms += ['<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
-                                              '<uses-permission android:name="android.permission.VIBRATE" />']
-          if bg_audio_enabled:      perms += ['<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
-                                              '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />']
-          if storage_enabled:       perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
-                                              '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />',
-                                              '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
-                                              '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
-                                              '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />']
-          if location_enabled:      perms += ['<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
-                                              '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />']
-          if biometric_enabled:     perms.append('<uses-permission android:name="android.permission.USE_BIOMETRIC" />')
+          if notifications_enabled: perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
+          if local_storage_enabled: perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />', '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />', '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />']
+          if location_enabled:      perms += ['<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />', '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />']
 
           orientation = "portrait" if screen_rot == "portrait" else "landscape" if screen_rot == "landscape" else "unspecified"
           perms_xml = "\n    ".join(perms)
           
-          bg_service = ''
-          if bg_audio_enabled:
-              bg_service = '''
-              <service
-                  android:name="com.capawesome.capacitorjs.plugins.foregroundservice.AndroidForegroundService"
-                  android:foregroundServiceType="mediaPlayback"
-                  android:exported="false" />'''
-
           manifest_template = f"""<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               {perms_xml}
@@ -360,9 +285,6 @@ jobs:
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
                   android:theme="@style/AppTheme">
-                  
-                  <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_app_id}"/>
-                  {bg_service}
 
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
@@ -413,9 +335,7 @@ jobs:
           python3 build_assets.py
 
       - name: Sync Web Directory and Plugins to Android Template
-        run: |
-          echo "Running Capacitor Sync..."
-          npx cap sync android
+        run: npx cap sync android
 
       - name: Run Debug APK Compilation Task
         run: |
@@ -459,7 +379,7 @@ jobs:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
+            Automated Android package build generated via HopFile Editor (Capacitor 6 Official Plugins Only).
             - **Package ID:** `${{ env.PACKAGE_ID }}`
             - **Build ID:** `${{ github.run_number }}`
           files: |
