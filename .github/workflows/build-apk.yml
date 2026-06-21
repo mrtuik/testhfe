@@ -701,7 +701,7 @@ jobs:
           if splash_screen_enabled:
               activities_manifest = """
                   <activity
-                      android:name="com.example.runner.SplashActivity"
+                      android:name=".SplashActivity"
                       android:exported="true"
                       android:theme="@style/SplashTheme"
                       android:hardwareAccelerated="true"
@@ -713,7 +713,7 @@ jobs:
                   </activity>
 
                   <activity
-                      android:name="com.example.runner.MainActivity"
+                      android:name=".MainActivity"
                       android:exported="true"
                       android:launchMode="singleTop"
                       android:configChanges="orientation|screenSize|keyboardHidden"
@@ -724,7 +724,7 @@ jobs:
           else:
               activities_manifest = """
                   <activity
-                      android:name="com.example.runner.MainActivity"
+                      android:name=".MainActivity"
                       android:exported="true"
                       android:launchMode="singleTop"
                       android:configChanges="orientation|screenSize|keyboardHidden"
@@ -762,8 +762,8 @@ jobs:
                   
                   __ACTIVITIES_STAGED__
 
-                  <receiver android:name="com.example.runner.MainActivity$NotificationReceiver" android:exported="false" />
-                  <service android:name="com.example.runner.MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
+                  <receiver android:name=".MainActivity$NotificationReceiver" android:exported="false" />
+                  <service android:name=".MainActivity$ForegroundService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
               </application>
           </manifest>
           """
@@ -785,6 +785,7 @@ jobs:
               import android.content.Intent;
               import android.os.Bundle;
               import android.os.Handler;
+              import android.os.Looper;
 
               public class SplashActivity extends AppCompatActivity {
                   @Override
@@ -792,7 +793,7 @@ jobs:
                       super.onCreate(savedInstanceState);
                       setContentView(R.layout.activity_splash);
                       
-                      new Handler().postDelayed(new Runnable() {
+                      new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                           @Override
                           public void run() {
                               Intent intent = new Intent(SplashActivity.this, MainActivity.class);
@@ -816,26 +817,22 @@ jobs:
           progress_update_block = """if (mProgress != null) {
               mProgress.setProgress(newProgress);
               if (newProgress == 100) {
-                  mProgress.setVisibility(View.GONE);
+                  mProgress.setVisibility(android.view.View.GONE);
               } else {
-                  mProgress.setVisibility(View.VISIBLE);
+                  mProgress.setVisibility(android.view.View.VISIBLE);
               }
           }""" if loading_ui_enabled else ""
 
-          local_storage_block = ""
-          if local_storage_enabled:
-              local_storage_block = """webSettings.setDomStorageEnabled(true);
+          local_storage_block = """webSettings.setDomStorageEnabled(true);
               webSettings.setDatabaseEnabled(true);
               webSettings.setAllowFileAccess(true);
               webSettings.setAllowContentAccess(true);
               webSettings.setAllowFileAccessFromFileURLs(true);
-              webSettings.setAllowUniversalAccessFromFileURLs(true);"""
+              webSettings.setAllowUniversalAccessFromFileURLs(true);""" if local_storage_enabled else ""
 
-          zoom_block = ""
-          if zoom_enabled:
-              zoom_block = """webSettings.setSupportZoom(true);
+          zoom_block = """webSettings.setSupportZoom(true);
               webSettings.setBuiltInZoomControls(true);
-              webSettings.setDisplayZoomControls(false);"""
+              webSettings.setDisplayZoomControls(false);""" if zoom_enabled else ""
 
           autoplay_ua_block = ""
           if autoplay_enabled:
@@ -852,7 +849,9 @@ jobs:
               mSwipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
                   @Override
                   public void onRefresh() {
-                      mWebView.reload();
+                      if (mWebView != null) {
+                          mWebView.reload();
+                      }
                   }
               });"""
               swipe_refresh_stop_code_block = """if (mSwipeRefresh != null) {
@@ -861,60 +860,62 @@ jobs:
 
           long_press_code_block = ""
           if not long_press_enabled:
-              long_press_code_block = """mWebView.setOnLongClickListener(new View.OnLongClickListener() {
+              long_press_code_block = """mWebView.setOnLongClickListener(new android.view.View.OnLongClickListener() {
                   @Override
-                  public boolean onLongClick(View v) {
+                  public boolean onLongClick(android.view.View v) {
                       return true;
                   }
               });
                   mWebView.setLongClickable(false);"""
 
-          download_manager_block = ""
-          if file_transfer_enabled:
-              download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
+          download_manager_block = """mWebView.setDownloadListener(new DownloadListener() {
                   @Override
                   public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                       if (url.startsWith("blob:") || url.startsWith("data:")) {
                           return;
                       }
-                      DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                      request.setMimeType(mimetype);
-                      String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
-                      request.setTitle(fileName);
-                      request.setDescription("Downloading target assets...");
-                      request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-                      DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                      if (dm != null) {
-                          dm.enqueue(request);
-                          Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                      try {
+                          DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                          request.setMimeType(mimetype);
+                          String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+                          request.setTitle(fileName);
+                          request.setDescription("Downloading target assets...");
+                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                          DownloadManager dm = (DownloadManager) MainActivity.this.getSystemService(Context.DOWNLOAD_SERVICE);
+                          if (dm != null) {
+                              dm.enqueue(request);
+                              Toast.makeText(MainActivity.this, "Download started...", Toast.LENGTH_SHORT).show();
+                          }
+                      } catch (Exception e) {
+                          e.printStackTrace();
                       }
                   }
-              });"""
+              });""" if file_transfer_enabled else ""
 
-          permission_manager_block = """ArrayList<String> permissions = new ArrayList<>();
+          permission_manager_block = """java.util.ArrayList<String> permissions = new java.util.ArrayList<>();
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              permissions.add("android.permission.POST_NOTIFICATIONS");
-              permissions.add("android.permission.READ_MEDIA_IMAGES");
-              permissions.add("android.permission.READ_MEDIA_AUDIO");
-              permissions.add("android.permission.READ_MEDIA_VIDEO");
+              permissions.add(android.Manifest.permission.POST_NOTIFICATIONS);
+              permissions.add(android.Manifest.permission.READ_MEDIA_IMAGES);
+              permissions.add(android.Manifest.permission.READ_MEDIA_AUDIO);
+              permissions.add(android.Manifest.permission.READ_MEDIA_VIDEO);
           }
           """
           if camera_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.CAMERA);\n'
+              permission_manager_block += 'permissions.add(android.Manifest.permission.CAMERA);\n'
           if microphone_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.RECORD_AUDIO);\n'
+              permission_manager_block += 'permissions.add(android.Manifest.permission.RECORD_AUDIO);\n'
           if local_storage_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
+              permission_manager_block += 'permissions.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);\n'
           if location_enabled:
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);\n'
-              permission_manager_block += 'permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION);\n'
+              permission_manager_block += 'permissions.add(android.Manifest.permission.ACCESS_COARSE_LOCATION);\n'
 
           permission_manager_block += """
           if (!permissions.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-              ArrayList<String> remaining = new ArrayList<>();
+              java.util.ArrayList<String> remaining = new java.util.ArrayList<>();
               for (String p : permissions) {
-                  if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) {
+                  if (androidx.core.content.ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
                       remaining.add(p);
                   }
               }
@@ -925,7 +926,6 @@ jobs:
           """
 
           main_activity_java_template = r"""package com.example.runner;
-          import android.Manifest;
           import androidx.appcompat.app.AppCompatActivity;
           import android.app.Activity;
           import android.app.DownloadManager;
@@ -942,7 +942,7 @@ jobs:
           import android.os.Bundle;
           import android.os.Environment;
           import android.os.Handler;
-          import android.view.View;
+          import android.os.Looper;
           import android.view.Window;
           import android.view.WindowManager;
           import android.webkit.DownloadListener;
@@ -963,23 +963,12 @@ jobs:
           import androidx.core.app.NotificationManagerCompat;
           import android.content.ContentValues;
           import android.provider.MediaStore;
-          import java.io.File;
-          import java.io.InputStream;
-          import java.io.OutputStream;
-          import java.io.FileOutputStream;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
           import android.util.Base64;
           import android.webkit.JavascriptInterface;
           import android.speech.tts.TextToSpeech;
           import android.speech.RecognizerIntent;
           import android.speech.SpeechRecognizer;
           import android.speech.RecognitionListener;
-          import android.support.v4.media.session.MediaSessionCompat;
-          import android.support.v4.media.session.PlaybackStateCompat;
-          import android.support.v4.media.MediaMetadataCompat;
-          import java.util.ArrayList;
-          import java.util.Locale;
           __BIOMETRIC_IMPORTS__
           __SWIPE_IMPORT__
 
@@ -988,14 +977,14 @@ jobs:
               ValueCallback<Uri[]> mUploadMessage;
               private final static int FILECHOOSER_RESULTCODE = 1;
               public static MainActivity sInstance;
-              Process phpProcess;
+              java.lang.Process phpProcess;
               TextToSpeech mTTS;
               SpeechRecognizer mSpeechRecognizer;
               private boolean doubleBackToExitPressedOnce = false;
               __SWIPE_DECLARATION__
               __PROGRESS_DECLARATION__
 
-              private android.os.Handler mPollHandler = new android.os.Handler();
+              private Handler mPollHandler = new Handler(Looper.getMainLooper());
               private Runnable mPollRunnable = new Runnable() {
                   @Override
                   public void run() {
@@ -1086,7 +1075,7 @@ jobs:
                           if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("sms:") || url.startsWith("whatsapp:") || url.startsWith("intent:")) {
                               try {
                                   Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                                  startActivity(intent);
+                                  MainActivity.this.startActivity(intent);
                                   return true;
                               } catch (Exception e) {
                                   e.printStackTrace();
@@ -1098,7 +1087,7 @@ jobs:
                               if (!url.startsWith("http://127.0.0.1") && !url.startsWith("https://appassets.androidplatform.net")) {
                                   try {
                                       Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                                      startActivity(intent);
+                                      MainActivity.this.startActivity(intent);
                                       return true;
                                   } catch (Exception e) {
                                       e.printStackTrace();
@@ -1140,7 +1129,7 @@ jobs:
                   mWebView.setWebChromeClient(new WebChromeClient() {
                       @Override
                       public void onPermissionRequest(final PermissionRequest request) {
-                          runOnUiThread(new Runnable() {
+                          MainActivity.this.runOnUiThread(new Runnable() {
                               @Override
                               public void run() {
                                   try {
@@ -1174,7 +1163,7 @@ jobs:
                               intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                           }
                           try {
-                              startActivityForResult(Intent.createChooser(intent, "Select File"), FILECHOOSER_RESULTCODE);
+                              MainActivity.this.startActivityForResult(Intent.createChooser(intent, "Select File"), FILECHOOSER_RESULTCODE);
                           } catch (Exception e) {
                               mUploadMessage = null;
                               return false;
@@ -1197,7 +1186,7 @@ jobs:
                       @Override
                       public void onInit(int status) {
                           if (status == TextToSpeech.SUCCESS) {
-                              mTTS.setLanguage(Locale.US);
+                              mTTS.setLanguage(java.util.Locale.US);
                           }
                       }
                   });
@@ -1218,7 +1207,7 @@ jobs:
                   try {
                       String[] files = getAssets().list(srcFolder);
                       if (files == null) return;
-                      File destDir = new File(destPath);
+                      java.io.File destDir = new java.io.File(destPath);
                       if (!destDir.exists()) destDir.mkdirs();
                       for (String file : files) {
                           String srcFile = srcFolder.isEmpty() ? file : srcFolder + "/" + file;
@@ -1236,8 +1225,8 @@ jobs:
               }
 
               private void copyAsset(String srcFile, String destFile) {
-                  try (InputStream in = getAssets().open(srcFile);
-                       OutputStream out = new FileOutputStream(destFile)) {
+                  try (java.io.InputStream in = getAssets().open(srcFile);
+                       java.io.OutputStream out = new java.io.FileOutputStream(destFile)) {
                       byte[] buffer = new byte[8192];
                       int read;
                       while ((read = in.read(buffer)) != -1) {
@@ -1257,22 +1246,22 @@ jobs:
                               String phpBinary = nativeDir + "/libphp.so";
                               String docRoot = getFilesDir().getAbsolutePath() + "/www";
 
-                              File binaryFile = new File(phpBinary);
+                              java.io.File binaryFile = new java.io.File(phpBinary);
                               if (binaryFile.exists()) {
                                   binaryFile.setExecutable(true, false);
                               }
 
-                              ProcessBuilder pb = new ProcessBuilder(
+                              java.lang.ProcessBuilder pb = new java.lang.ProcessBuilder(
                                   phpBinary,
                                   "-S", "127.0.0.1:" + port,
                                   "-t", docRoot
                               );
-                              pb.directory(new File(docRoot));
+                              pb.directory(new java.io.File(docRoot));
                               pb.redirectErrorStream(true);
                               phpProcess = pb.start();
 
-                              InputStream is = phpProcess.getInputStream();
-                              BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+                              java.io.InputStream is = phpProcess.getInputStream();
+                              java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
                               String line;
                               while ((line = reader.readLine()) != null) {
                                   android.util.Log.d("PHPServer", line);
@@ -1302,7 +1291,7 @@ jobs:
 
               private void createNotificationChannels() {
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                      NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                       if (manager == null) return;
 
                       NotificationChannel defaultChan = new NotificationChannel("default", "App Channel", NotificationManager.IMPORTANCE_DEFAULT);
@@ -1502,7 +1491,7 @@ jobs:
                   alarmIntent.putExtra("message", message);
                   android.app.PendingIntent pIntent = android.app.PendingIntent.getBroadcast(this, (int)System.currentTimeMillis(), alarmIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
 
-                  android.app.AlarmManager alarmManager = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+                  android.app.AlarmManager alarmManager = (android.app.AlarmManager) getSystemService(Context.ALARM_SERVICE);
                   if (alarmManager != null) {
                       long triggerAtMillis = System.currentTimeMillis() + (delaySeconds * 1000L);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1669,7 +1658,7 @@ jobs:
                           @Override
                           public void run() {
                               try {
-                                  OutputStream os;
+                                  java.io.OutputStream os;
                                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                       ContentValues values = new ContentValues();
                                       values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
@@ -1840,7 +1829,7 @@ jobs:
                                       }
                                       doubleBackToExitPressedOnce = true;
                                       Toast.makeText(MainActivity.this, "Press BACK again to exit", Toast.LENGTH_SHORT).show();
-                                      new Handler().postDelayed(new Runnable() {
+                                      new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                                           @Override
                                           public void run() {
                                               doubleBackToExitPressedOnce = false;
@@ -1939,7 +1928,7 @@ jobs:
                                       public void onError(int error) {}
                                       @Override
                                       public void onResults(Bundle results) {
-                                          ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                                          java.util.ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                                           if (matches != null && !matches.isEmpty()) {
                                               mContext.mWebView.loadUrl("javascript:if(window.onSpeechResult){ window.onSpeechResult('" + matches.get(0).replace("'", "\\\\'") + "'); }");
                                           }
@@ -1952,7 +1941,7 @@ jobs:
                               }
                               Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
                               intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+                              intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault());
                               mContext.mSpeechRecognizer.startListening(intent);
                           }
                       });
@@ -2607,26 +2596,23 @@ jobs:
                   BiometricManager biometricManager = BiometricManager.from(this);
                   switch (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
                       case BiometricManager.BIOMETRIC_SUCCESS:
-                          java.util.concurrent.Executor executor = ContextCompat.getMainExecutor(this);
+                          java.util.concurrent.Executor executor = androidx.core.content.ContextCompat.getMainExecutor(this);
                           BiometricPrompt biometricPrompt = new BiometricPrompt(MainActivity.this,
                                   executor, new BiometricPrompt.AuthenticationCallback() {
                               @Override
                               public void onAuthenticationError(int errorCode, CharSequence errString) {
-                                  super.onAuthenticationError(errorCode, errString);
-                                  Toast.makeText(getApplicationContext(), "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
+                                  Toast.makeText(MainActivity.this, "Authentication error: " + errString, Toast.LENGTH_SHORT).show();
                                   finish();
                               }
 
                               @Override
                               public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                                  super.onAuthenticationSucceeded(result);
-                                  Toast.makeText(getApplicationContext(), "Authentication succeeded!", Toast.LENGTH_SHORT).show();
+                                  Toast.makeText(MainActivity.this, "Authentication succeeded!", Toast.LENGTH_SHORT).show();
                               }
 
                               @Override
                               public void onAuthenticationFailed() {
-                                  super.onAuthenticationFailed();
-                                  Toast.makeText(getApplicationContext(), "Authentication failed", Toast.LENGTH_SHORT).show();
+                                  Toast.makeText(MainActivity.this, "Authentication failed", Toast.LENGTH_SHORT).show();
                               }
                           });
 
