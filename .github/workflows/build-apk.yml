@@ -165,6 +165,7 @@ jobs:
           file_transfer_enabled = config.get("fileTransferEnabled", True)
           double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
           biometric_enabled = config.get("biometricEnabled", False)
+          splash_screen_enabled = config.get("splashScreenEnabled", False)
 
           has_php_files = False
           assets_dir = "app/src/main/assets"
