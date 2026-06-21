@@ -57,80 +57,80 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json with Pinned Capacitor 6.2.x Plugins
+      - name: Write Automated package.json with Bulletproof Plugin Matrix
         run: |
           cat << 'EOF' > package.json
           {
-            "name": "webrunner",
+            "name": "capacitor-app",
             "version": "1.0.0",
             "description": "Capacitor App built with HopFile Editor",
             "dependencies": {
-              "@capacitor/core": "6.2.0",
-              "@capacitor/android": "6.2.0",
-              "@capacitor/app": "6.0.2",
-              "@capacitor/app-launcher": "6.0.2",
-              "@capacitor/action-sheet": "6.0.2",
-              "@capacitor/browser": "6.0.3",
-              "@capacitor/camera": "6.1.2",
-              "@capacitor/clipboard": "6.0.2",
-              "@capacitor/device": "6.0.2",
-              "@capacitor/dialog": "6.0.2",
-              "@capacitor/filesystem": "6.0.3",
-              "@capacitor/geolocation": "6.1.0",
-              "@capacitor/haptics": "6.0.2",
-              "@capacitor/keyboard": "6.0.3",
-              "@capacitor/local-notifications": "6.2.0",
-              "@capacitor/motion": "6.0.2",
-              "@capacitor/network": "6.0.3",
-              "@capacitor/preferences": "6.0.3",
-              "@capacitor/share": "6.0.3",
-              "@capacitor/splash-screen": "6.0.3",
-              "@capacitor/status-bar": "6.0.2",
-              "@capacitor/text-zoom": "6.0.2",
-              "@capacitor/toast": "6.0.3",
-              "@capacitor-community/admob": "6.0.0",
-              "@capacitor-community/apple-sign-in": "6.0.0",
-              "@capacitor-community/bluetooth-le": "6.0.1",
-              "@capacitor-community/camera-preview": "6.0.0",
-              "@capacitor-community/contacts": "6.0.1",
-              "@capacitor-community/keep-awake": "5.0.0",
-              "@capacitor-community/media": "6.0.0",
-              "@capacitor-community/sqlite": "6.0.2",
-              "@capacitor-community/text-to-speech": "5.0.1",
-              "@capacitor-community/speech-recognition": "6.0.0",
-              "@capawesome/capacitor-app-update": "6.0.1",
-              "@capawesome/capacitor-app-shortcuts": "6.0.1",
-              "@capawesome/capacitor-badge": "6.0.1",
-              "@capawesome/capacitor-biometrics": "6.0.1",
-              "@capawesome/capacitor-file-picker": "6.2.0",
-              "@capawesome/capacitor-file-opener": "6.0.2",
-              "@capawesome/capacitor-mlkit-barcode-scanning": "6.0.0",
-              "@capawesome/capacitor-nfc": "6.0.1",
-              "@capawesome/capacitor-screen-orientation": "6.0.1",
-              "@capawesome-team/capacitor-android-foreground-service": "6.1.0",
-              "@capawesome/capacitor-firebase-authentication": "6.1.0",
-              "@capawesome/capacitor-firebase-messaging": "6.1.0",
-              "@capawesome/capacitor-firebase-firestore": "6.1.0",
-              "@capgo/capacitor-updater": "6.5.0",
-              "@capgo/native-audio": "7.0.5",
-              "@capgo/capacitor-native-biometric": "6.0.0",
-              "@capgo/inappreview": "6.0.0",
-              "@capgo/capacitor-social-login": "6.0.0",
-              "@capgo/capacitor-screen-recorder": "6.0.0",
-              "@capgo/background-task": "6.0.0",
-              "@transistorsoft/capacitor-background-fetch": "6.0.0",
-              "@transistorsoft/capacitor-background-geolocation": "6.0.0",
-              "capacitor-native-settings": "6.0.0",
-              "capacitor-video-player": "6.0.0-rc.3"
+              "@capacitor/core": "^6.2.0",
+              "@capacitor/android": "^6.2.0",
+              "@capacitor/app": "^6.0.0",
+              "@capacitor/app-launcher": "^6.0.0",
+              "@capacitor/action-sheet": "^6.0.0",
+              "@capacitor/browser": "^6.0.0",
+              "@capacitor/camera": "^6.0.0",
+              "@capacitor/clipboard": "^6.0.0",
+              "@capacitor/device": "^6.0.0",
+              "@capacitor/dialog": "^6.0.0",
+              "@capacitor/filesystem": "^6.0.0",
+              "@capacitor/geolocation": "^6.0.0",
+              "@capacitor/haptics": "^6.0.0",
+              "@capacitor/keyboard": "^6.0.0",
+              "@capacitor/local-notifications": "^6.0.0",
+              "@capacitor/motion": "^6.0.0",
+              "@capacitor/network": "^6.0.0",
+              "@capacitor/preferences": "^6.0.0",
+              "@capacitor/push-notifications": "^6.0.0",
+              "@capacitor/share": "^6.0.0",
+              "@capacitor/splash-screen": "^6.0.0",
+              "@capacitor/status-bar": "^6.0.0",
+              "@capacitor/text-zoom": "^6.0.0",
+              "@capacitor/toast": "^6.0.0",
+              "@capacitor-community/admob": "*",
+              "@capacitor-community/apple-sign-in": "*",
+              "@capacitor-community/bluetooth-le": "*",
+              "@capacitor-community/camera-preview": "*",
+              "@capacitor-community/contacts": "*",
+              "@capacitor-community/keep-awake": "*",
+              "@capacitor-community/media": "*",
+              "@capacitor-community/sqlite": "*",
+              "@capacitor-community/text-to-speech": "*",
+              "@capacitor-community/speech-recognition": "*",
+              "@capawesome/capacitor-app-update": "*",
+              "@capawesome/capacitor-app-shortcuts": "*",
+              "@capawesome/capacitor-badge": "*",
+              "@capawesome/capacitor-file-picker": "*",
+              "@capawesome/capacitor-file-opener": "*",
+              "@capawesome/capacitor-mlkit-barcode-scanning": "*",
+              "@capawesome/capacitor-nfc": "*",
+              "@capawesome/capacitor-screen-orientation": "*",
+              "@capawesome-team/capacitor-android-foreground-service": "*",
+              "@capawesome/capacitor-firebase-authentication": "*",
+              "@capawesome/capacitor-firebase-messaging": "*",
+              "@capawesome/capacitor-firebase-firestore": "*",
+              "@capgo/capacitor-updater": "*",
+              "@capgo/native-audio": "*",
+              "@capgo/capacitor-native-biometric": "*",
+              "@capgo/inappreview": "*",
+              "@capgo/capacitor-social-login": "*",
+              "@capgo/capacitor-screen-recorder": "*",
+              "@capgo/background-task": "*",
+              "@transistorsoft/capacitor-background-fetch": "*",
+              "@transistorsoft/capacitor-background-geolocation": "*",
+              "capacitor-native-settings": "*",
+              "capacitor-video-player": "*"
             },
             "devDependencies": {
-              "@capacitor/cli": "6.2.0"
+              "@capacitor/cli": "^6.2.0"
             }
           }
           EOF
           
-          # Appending --legacy-peer-deps to ignore community plugin dependency limits
-          npm install --legacy-peer-deps
+          # PERMANENT FIX: Force resolve all dependencies regardless of strict peer limits
+          npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Initialize Capacitor 6 Project Structure
         run: |
@@ -216,7 +216,7 @@ jobs:
           php_support = config.get("phpSupport", True) and has_php_files
           php_port = int(config.get("phpPort", 8080))
 
-          # Gradle template using targetSdk 35 for Capacitor 6.2.0 compatibility
+          # Gradle template using default debug signing
           app_build_gradle_template = """
           apply plugin: 'com.android.application'
           android {
@@ -249,7 +249,6 @@ jobs:
               implementation 'androidx.webkit:webkit:1.6.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'androidx.media:media:1.6.0'
-              implementation 'androidx.biometric:biometric:1.1.0'
           }
           """
           app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id).replace("__VERSION_CODE__", str(version_code)).replace("__VERSION_NAME__", version_name)
@@ -354,10 +353,30 @@ jobs:
           """
           with open(f"{java_dir}/MainActivity.java", "w") as f:
               f.write(main_activity_java)
+              
+          # Setup custom launcher icon using Pillow if assets available
+          icon_src = "www/_app_icon.png"
+          if os.path.exists(icon_src):
+              sizes = {
+                  "mipmap-mdpi": 48,
+                  "mipmap-hdpi": 72,
+                  "mipmap-xhdpi": 96,
+                  "mipmap-xxhdpi": 144,
+                  "mipmap-xxxhdpi": 192
+              }
+              try:
+                  with Image.open(icon_src) as img:
+                      for folder, size in sizes.items():
+                          dest_dir = f"android/app/src/main/res/{folder}"
+                          os.makedirs(dest_dir, exist_ok=True)
+                          resized_img = img.resize((size, size), Image.Resampling.LANCZOS)
+                          resized_img.save(f"{dest_dir}/ic_launcher.png")
+              except Exception as e:
+                  print(f"Error compiling custom launcher icon: {e}")
           EOF
           python3 build_assets.py
 
-      - name: Sync Web Directory Changes to Android Template
+      - name: Sync Web Directory and Plugins to Android Template
         run: |
           echo "Running Capacitor Sync..."
           npx cap sync android
@@ -404,7 +423,7 @@ jobs:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package build generated via HopFile Editor (Capacitor 6.2.0 Engine).
+            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
             - **Package ID:** `${{ env.PACKAGE_ID }}`
             - **Build ID:** `${{ github.run_number }}`
           files: |
