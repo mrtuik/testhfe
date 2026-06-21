@@ -151,7 +151,6 @@ jobs:
           APK_NAME="${CLEANED_NAME}_v${VERSION_NAME}.apk"
           ZIP_NAME="${CLEANED_NAME}_v${VERSION_NAME}_APK.zip"
           
-          # Inject clean credit properties into output directory [1]
           cat << 'EOF' > android/app/build/outputs/apk/debug/credits.txt
           ==================================================
           HopFile Editor - Build Package
