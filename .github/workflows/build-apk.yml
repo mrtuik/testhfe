@@ -98,7 +98,7 @@ jobs:
 
       - name: Write Automated package.json (PERMANENT 404 FIX)
         run: |
-          # Using "latest" tag for all community plugins to guarantee NPM always finds a valid version!
+          # FIXED: Swapped the non-existent @capawesome/capacitor-file-opener with the real @capgo/capacitor-file-opener
           cat << 'EOF' > package.json
           {
             "name": "capacitor-app",
@@ -134,7 +134,7 @@ jobs:
               "@capacitor-community/speech-recognition": "latest",
               "@capacitor-community/media": "latest",
               "@capawesome/capacitor-file-picker": "latest",
-              "@capawesome/capacitor-file-opener": "latest",
+              "@capgo/capacitor-file-opener": "latest",
               "@capawesome/capacitor-screen-orientation": "latest",
               "@capawesome-team/capacitor-android-foreground-service": "latest",
               "@capgo/capacitor-native-audio": "latest",
@@ -150,7 +150,7 @@ jobs:
           }
           EOF
           
-          # Force install all dependencies, ignoring peer conflicts
+          # Safe installation bypassing audit constraints and legacy conflicts
           npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Initialize Capacitor 6 Project Structure
@@ -318,7 +318,7 @@ jobs:
 
           orientation = "portrait" if screen_rot == "portrait" else "landscape" if screen_rot == "landscape" else "unspecified"
           perms_xml = "\n    ".join(perms)
-
+          
           bg_service = ''
           if bg_audio_enabled:
               bg_service = '''
@@ -327,7 +327,7 @@ jobs:
                   android:foregroundServiceType="mediaPlayback"
                   android:exported="false" />'''
 
-          manifest = f"""<?xml version="1.0" encoding="utf-8"?>
+          manifest_template = f"""<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               {perms_xml}
               <application
@@ -338,10 +338,9 @@ jobs:
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
                   android:theme="@style/AppTheme">
-
-                  <meta-data
-                      android:name="com.google.android.gms.ads.APPLICATION_ID"
-                      android:value="{admob_app_id}" />
+                  
+                  <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_app_id}"/>
+                  {bg_service}
 
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
@@ -356,18 +355,18 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
-                  {bg_service}
               </application>
           </manifest>
           """
-          open("android/app/src/main/AndroidManifest.xml", "w").write(manifest)
+          with open("android/app/src/main/AndroidManifest.xml", "w") as f:
+              f.write(manifest_template.strip())
 
-          # Write MainActivity.java
-          pkg_path = package_id.replace(".", "/")
-          java_dir = f"android/app/src/main/java/{pkg_path}"
+          # Build package structure and write main activity code
+          package_path = package_id.replace(".", "/")
+          java_dir = f"android/app/src/main/java/{package_path}"
           os.makedirs(java_dir, exist_ok=True)
-          
-          # Native Biometrics Integration inside MainActivity
+
+          # Bridge Activity
           main_activity_java = f"""package {package_id};
           import com.getcapacitor.BridgeActivity;
           import android.os.Bundle;
