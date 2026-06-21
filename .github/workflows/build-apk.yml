@@ -23,13 +23,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21 (Fixed Version 65 Error)
+      - name: Set up JDK 17 (Required for Capacitor 6)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '21'
+          java-version: '17'
 
-      - name: Setup Android SDK (Licenses Auto-Accept)
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Set up Node.js
@@ -37,50 +37,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Gradle 8.7 (Supports Java 21)
+      - name: Setup Gradle 8.2
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.7'
-
-      - name: Initialize Android Web-View Wrapper Template
-        run: |
-          mkdir -p app/src/main/java/com/example/runner
-          mkdir -p app/src/main/assets
-          mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/layout
-          mkdir -p app/src/main/res/drawable
-          
-          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          
-          cat << 'EOF' > settings.gradle
-          rootProject.name = 'WebRunner'
-          include ':app'
-          EOF
-          
-          # Updated Gradle Plugin to 8.3.2 for Java 21 Support
-          cat << 'EOF' > build.gradle
-          buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath 'com.android.tools.build:gradle:8.3.2'
-                  classpath 'com.google.gms:google-services:4.4.1'
-              }
-          }
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          EOF
+          gradle-version: '8.2'
 
       - name: Fetch Website Archive and Verify Assets
         run: |
+          echo "Verifying local web workspace ZIP archive inside repository..."
           if [ ! -f "${ZIP_NAME}" ]; then
               echo "ERROR: ${ZIP_NAME} not found in repository!"
               exit 1
@@ -93,8 +57,9 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json
+      - name: Write Automated package.json (Locked to Stable Capacitor 6)
         run: |
+          # Only highly stable and officially verified plugins are included to prevent 404 and Java 21 crashes.
           cat << 'EOF' > package.json
           {
             "name": "capacitor-app",
@@ -104,8 +69,6 @@ jobs:
               "@capacitor/core": "^6.2.0",
               "@capacitor/android": "^6.2.0",
               "@capacitor/app": "^6.0.0",
-              "@capacitor/app-launcher": "^6.0.0",
-              "@capacitor/action-sheet": "^6.0.0",
               "@capacitor/browser": "^6.0.0",
               "@capacitor/camera": "^6.0.0",
               "@capacitor/clipboard": "^6.0.0",
@@ -116,23 +79,16 @@ jobs:
               "@capacitor/haptics": "^6.0.0",
               "@capacitor/keyboard": "^6.0.0",
               "@capacitor/local-notifications": "^6.0.0",
-              "@capacitor/motion": "^6.0.0",
               "@capacitor/network": "^6.0.0",
               "@capacitor/preferences": "^6.0.0",
               "@capacitor/push-notifications": "^6.0.0",
               "@capacitor/share": "^6.0.0",
               "@capacitor/splash-screen": "^6.0.0",
               "@capacitor/status-bar": "^6.0.0",
-              "@capacitor/text-zoom": "^6.0.0",
               "@capacitor/toast": "^6.0.0",
-              "@capacitor-community/admob": "latest",
-              "@capacitor-community/text-to-speech": "latest",
-              "@capawesome-team/capacitor-file-opener": "latest",
-              "@capawesome/capacitor-file-picker": "latest",
-              "@capawesome/capacitor-screen-orientation": "latest",
-              "@capawesome-team/capacitor-android-foreground-service": "latest",
-              "@capgo/native-audio": "latest",
-              "@capgo/capacitor-background-task": "latest"
+              "@capacitor-community/admob": "^6.0.0",
+              "@capawesome-team/capacitor-android-foreground-service": "^6.0.0",
+              "@capgo/capacitor-native-audio": "^6.0.0"
             },
             "devDependencies": {
               "@capacitor/cli": "^6.2.0"
@@ -184,34 +140,56 @@ jobs:
           version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
           theme_color = config.get("themeColor", "#4F46E5")
           splash_bg = config.get("splashBgColor", "#111827")
-          screen_rot = config.get("screenRotation", "auto")
           admob_app_id = os.environ.get("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
 
-          # Update the dummy google-services.json with correct package_id
+          # Dynamic Feature Toggles
+          camera_enabled = config.get("cameraEnabled", True)
+          notifications_enabled = config.get("notificationsEnabled", True)
+          microphone_enabled = config.get("microphoneEnabled", True)
+          location_enabled = config.get("locationEnabled", False)
+          bg_audio_enabled = config.get("backgroundAudioEnabled", True)
+          storage_enabled = config.get("localStorageEnabled", True)
+
+          # Update the dummy google-services.json
           gs_path = "android/app/google-services.json"
           if os.path.exists(gs_path):
               gs_data = json.load(open(gs_path))
               gs_data["client"][0]["client_info"]["android_client_info"]["package_name"] = package_id
               open(gs_path, "w").write(json.dumps(gs_data))
 
-          # Gradle template using targetSdk 35 and Java 21
+          # Root build.gradle
+          root_gradle = """
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.1'
+                  classpath 'com.google.gms:google-services:4.4.1'
+              }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          """
+          open("android/build.gradle", "w").write(root_gradle.strip())
+
+          # App build.gradle (Locked to Target SDK 34 for Cap 6 compliance)
           app_build_gradle_template = f"""
           apply plugin: 'com.android.application'
           apply plugin: 'com.google.gms.google-services'
           
           android {{
               namespace '{package_id}'
-              compileSdk 35
+              compileSdk 34
               defaultConfig {{
                   applicationId "{package_id}"
                   minSdk 24
-                  targetSdk 35
+                  targetSdk 34
                   versionCode {version_code}
                   versionName "{version_name}"
               }}
               compileOptions {{
-                  sourceCompatibility JavaVersion.VERSION_21
-                  targetCompatibility JavaVersion.VERSION_21
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
               }}
               buildTypes {{
                   release {{
@@ -227,8 +205,8 @@ jobs:
               implementation fileTree(dir: 'libs', include: ['*.jar'])
               implementation project(':capacitor-android')
               implementation 'androidx.webkit:webkit:1.11.0'
-              implementation 'androidx.appcompat:appcompat:1.7.0'
-              implementation 'com.google.android.gms:play-services-ads:23.2.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.gms:play-services-ads:23.0.0'
           }}
           """
           open("android/app/build.gradle", "w").write(app_build_gradle_template.strip())
@@ -256,24 +234,16 @@ jobs:
           </resources>""")
 
           # Setup Android Manifest Injections
-          camera_enabled = config.get("cameraEnabled", True)
-          notifications_enabled = config.get("notificationsEnabled", True)
-          microphone_enabled = config.get("microphoneEnabled", True)
-          location_enabled = config.get("locationEnabled", False)
-          storage_enabled = config.get("localStorageEnabled", True) or config.get("fileTransferEnabled", True)
-          bg_audio_enabled = config.get("backgroundAudioEnabled", True)
-
           perms = ['<uses-permission android:name="android.permission.INTERNET" />',
                    '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
                    '<uses-permission android:name="com.google.android.gms.permission.AD_ID" />']
           if camera_enabled:        perms.append('<uses-permission android:name="android.permission.CAMERA" />')
           if microphone_enabled:    perms += ['<uses-permission android:name="android.permission.RECORD_AUDIO" />', '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />']
           if notifications_enabled: perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
-          if storage_enabled:       perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />', '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />', '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />', '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />', '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />']
+          if storage_enabled:       perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />', '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />']
           if location_enabled:      perms += ['<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />', '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />']
-          if bg_audio_enabled:      perms += ['<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />', '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />', '<uses-permission android:name="android.permission.WAKE_LOCK" />']
+          if bg_audio_enabled:      perms += ['<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />', '<uses-permission android:name="android.permission.WAKE_LOCK" />']
 
-          orientation = "portrait" if screen_rot == "portrait" else "landscape" if screen_rot == "landscape" else "unspecified"
           perms_xml = "\n    ".join(perms)
           
           bg_service = ''
@@ -301,7 +271,6 @@ jobs:
                       android:label="@string/title_activity_main"
                       android:exported="true"
                       android:launchMode="singleTop"
-                      android:screenOrientation="{orientation}"
                       android:theme="@style/AppTheme.NoActionBar">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -340,7 +309,7 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug
 
       - name: Package APK with credits
         run: |
@@ -367,13 +336,9 @@ jobs:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package — Capacitor 6 Stable Build.
-            - Package ID: `${{ env.PACKAGE_ID }}`
-            - Build #: `${{ github.run_number }}`
+            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
           files: |
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/debug/*.zip
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
