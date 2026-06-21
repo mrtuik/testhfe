@@ -23,11 +23,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21 (Fixed Version 65 Error)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK (Licenses Auto-Accept)
         uses: android-actions/setup-android@v3
@@ -37,14 +37,50 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.7 (Supports Java 21)
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.7'
+
+      - name: Initialize Android Web-View Wrapper Template
+        run: |
+          mkdir -p app/src/main/java/com/example/runner
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          
+          echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          
+          cat << 'EOF' > settings.gradle
+          rootProject.name = 'WebRunner'
+          include ':app'
+          EOF
+          
+          # Updated Gradle Plugin to 8.3.2 for Java 21 Support
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.3.2'
+                  classpath 'com.google.gms:google-services:4.4.1'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
 
       - name: Fetch Website Archive and Verify Assets
         run: |
-          echo "Verifying local web workspace ZIP archive inside repository..."
           if [ ! -f "${ZIP_NAME}" ]; then
               echo "ERROR: ${ZIP_NAME} not found in repository!"
               exit 1
@@ -57,9 +93,8 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json (PERMANENT 404 ETARGET FIX)
+      - name: Write Automated package.json
         run: |
-          # Using "latest" for all community plugins guarantees NPM never throws 404
           cat << 'EOF' > package.json
           {
             "name": "capacitor-app",
@@ -96,7 +131,7 @@ jobs:
               "@capawesome/capacitor-file-picker": "latest",
               "@capawesome/capacitor-screen-orientation": "latest",
               "@capawesome-team/capacitor-android-foreground-service": "latest",
-              "@capgo/capacitor-native-audio": "latest",
+              "@capgo/native-audio": "latest",
               "@capgo/capacitor-background-task": "latest"
             },
             "devDependencies": {
@@ -104,17 +139,8 @@ jobs:
             }
           }
           EOF
-
-      - name: GitHub Cloud Vendoring (Cache node_modules)
-        uses: actions/cache@v4
-        id: npm-cache
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-capacitor-6-latest-v1
-
-      - name: Install Dependencies (Offline Preferred)
-        if: steps.npm-cache.outputs.cache-hit != 'true'
-        run: npm install --prefer-offline --legacy-peer-deps --no-audit --no-fund
+          
+          npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Initialize Capacitor 6 Project Structure
         run: |
@@ -126,9 +152,8 @@ jobs:
           cp -r raw_assets/* www/
           npx cap add android
 
-      - name: Setup Firebase google-services.json
+      - name: Decode google-services.json (FCM / Firebase)
         run: |
-          mkdir -p android/app
           cat << 'EOF' > android/app/google-services.json
           {
             "project_info": { "project_number": "123456789012", "project_id": "hopfile-project" },
@@ -138,6 +163,9 @@ jobs:
             }]
           }
           EOF
+
+      - name: Clear Legacy Java Packages
+        run: rm -rf android/app/src/main/java/*
 
       - name: Inject Custom Native Configs
         run: |
@@ -159,19 +187,14 @@ jobs:
           screen_rot = config.get("screenRotation", "auto")
           admob_app_id = os.environ.get("ADMOB_APP_ID", "ca-app-pub-3940256099942544~3347511713")
 
+          # Update the dummy google-services.json with correct package_id
           gs_path = "android/app/google-services.json"
           if os.path.exists(gs_path):
               gs_data = json.load(open(gs_path))
               gs_data["client"][0]["client_info"]["android_client_info"]["package_name"] = package_id
               open(gs_path, "w").write(json.dumps(gs_data))
 
-          root_gradle = "android/build.gradle"
-          if os.path.exists(root_gradle):
-              txt = open(root_gradle).read()
-              if "com.google.gms:google-services" not in txt:
-                  txt = txt.replace("dependencies {", "dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'", 1)
-                  open(root_gradle, "w").write(txt)
-
+          # Gradle template using targetSdk 35 and Java 21
           app_build_gradle_template = f"""
           apply plugin: 'com.android.application'
           apply plugin: 'com.google.gms.google-services'
@@ -187,12 +210,17 @@ jobs:
                   versionName "{version_name}"
               }}
               compileOptions {{
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
+                  sourceCompatibility JavaVersion.VERSION_21
+                  targetCompatibility JavaVersion.VERSION_21
               }}
               buildTypes {{
-                  release {{ minifyEnabled false }}
-                  debug {{ minifyEnabled false }}
+                  release {{
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }}
+                  debug {{
+                      minifyEnabled false
+                  }}
               }}
           }}
           dependencies {{
@@ -205,6 +233,7 @@ jobs:
           """
           open("android/app/build.gradle", "w").write(app_build_gradle_template.strip())
 
+          # Generate system assets XML
           os.makedirs("android/app/src/main/res/values", exist_ok=True)
           with open("android/app/src/main/res/values/colors.xml", "w") as f:
               f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n<color name="colorPrimary">{theme_color}</color>\n<color name="colorPrimaryDark">{theme_color}</color>\n<color name="colorAccent">{theme_color}</color>\n<color name="splashBg">{splash_bg}</color>\n</resources>')
@@ -212,26 +241,45 @@ jobs:
           with open("android/app/src/main/res/values/strings.xml", "w") as f:
               f.write(f'<?xml version="1.0" encoding="utf-8"?>\n<resources>\n<string name="app_name">{app_name}</string>\n<string name="title_activity_main">{app_name}</string>\n<string name="package_name">{package_id}</string>\n</resources>')
 
+          with open("android/app/src/main/res/values/styles.xml", "w") as f:
+              f.write("""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="colorPrimary">@color/colorPrimary</item>
+                  <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+                  <item name="colorAccent">@color/colorAccent</item>
+              </style>
+              <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+              </style>
+          </resources>""")
+
+          # Setup Android Manifest Injections
+          camera_enabled = config.get("cameraEnabled", True)
+          notifications_enabled = config.get("notificationsEnabled", True)
+          microphone_enabled = config.get("microphoneEnabled", True)
+          location_enabled = config.get("locationEnabled", False)
+          storage_enabled = config.get("localStorageEnabled", True) or config.get("fileTransferEnabled", True)
+          bg_audio_enabled = config.get("backgroundAudioEnabled", True)
+
           perms = ['<uses-permission android:name="android.permission.INTERNET" />',
                    '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
-                   '<uses-permission android:name="android.permission.CAMERA" />',
-                   '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
-                   '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
-                   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
-                   '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
-                   '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />',
-                   '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
-                   '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
-                   '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />',
-                   '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
-                   '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
-                   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
-                   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
                    '<uses-permission android:name="com.google.android.gms.permission.AD_ID" />']
-          
+          if camera_enabled:        perms.append('<uses-permission android:name="android.permission.CAMERA" />')
+          if microphone_enabled:    perms += ['<uses-permission android:name="android.permission.RECORD_AUDIO" />', '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />']
+          if notifications_enabled: perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />')
+          if storage_enabled:       perms += ['<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />', '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />', '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />', '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />', '<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />']
+          if location_enabled:      perms += ['<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />', '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />']
+          if bg_audio_enabled:      perms += ['<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />', '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />', '<uses-permission android:name="android.permission.WAKE_LOCK" />']
+
           orientation = "portrait" if screen_rot == "portrait" else "landscape" if screen_rot == "landscape" else "unspecified"
           perms_xml = "\n    ".join(perms)
           
+          bg_service = ''
+          if bg_audio_enabled:
+              bg_service = '''<service android:name="dev.robingenz.capacitorjs.plugins.foregroundservice.ForegroundService" android:exported="false" android:foregroundServiceType="mediaPlayback|dataSync" />'''
+
           manifest_template = f"""<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               {perms_xml}
@@ -242,10 +290,10 @@ jobs:
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="true"
-                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                  android:theme="@style/AppTheme">
                   
                   <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_app_id}"/>
-                  <service android:name="dev.robingenz.capacitorjs.plugins.foregroundservice.ForegroundService" android:exported="false" android:foregroundServiceType="dataSync" />
+                  {bg_service}
 
                   <activity
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
@@ -254,7 +302,7 @@ jobs:
                       android:exported="true"
                       android:launchMode="singleTop"
                       android:screenOrientation="{orientation}"
-                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                      android:theme="@style/AppTheme.NoActionBar">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -265,11 +313,13 @@ jobs:
           """
           open("android/app/src/main/AndroidManifest.xml", "w").write(manifest_template)
 
+          # Bridge Activity
           pkg_path = package_id.replace(".", "/")
           java_dir = f"android/app/src/main/java/{pkg_path}"
           os.makedirs(java_dir, exist_ok=True)
           open(f"{java_dir}/MainActivity.java", "w").write(f"package {package_id};\nimport com.getcapacitor.BridgeActivity;\npublic class MainActivity extends BridgeActivity {{}}\n")
           
+          # Setup custom launcher icon using Pillow
           icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
               sizes = { "mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192 }
@@ -317,9 +367,9 @@ jobs:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
-            - **Package ID:** `${{ env.PACKAGE_ID }}`
-            - **Build ID:** `${{ github.run_number }}`
+            Automated Android package — Capacitor 6 Stable Build.
+            - Package ID: `${{ env.PACKAGE_ID }}`
+            - Build #: `${{ github.run_number }}`
           files: |
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/debug/*.zip
