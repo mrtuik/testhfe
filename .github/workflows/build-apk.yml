@@ -180,11 +180,11 @@ jobs:
           apply plugin: 'com.android.application'
           android {
               namespace 'com.example.runner'
-              compileSdk 33
+              compileSdk 34
               defaultConfig {
                   applicationId "__PACKAGE_ID__"
                   minSdk 24
-                  targetSdk 33
+                  targetSdk 34
                   versionCode __VERSION_CODE__
                   versionName "__VERSION_NAME__"
               }
@@ -739,7 +739,7 @@ jobs:
               """
 
           android_manifest_xml_template = """<?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.runner">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               __CAMERA_PERMISSION_MANIFEST__
@@ -971,7 +971,6 @@ jobs:
           import java.io.InputStreamReader;
           import android.util.Base64;
           import android.webkit.JavascriptInterface;
-          import com.example.runner.R;
           import android.speech.tts.TextToSpeech;
           import android.speech.RecognizerIntent;
           import android.speech.SpeechRecognizer;
@@ -2406,7 +2405,7 @@ jobs:
                       
                       android.graphics.LinearGradient gradient = new android.graphics.LinearGradient(
                           0, 0, size, size,
-                          new int[]{0xFF111827, 0xFF1F2937, 0xFF111827},
+                          new int[]{android.graphics.Color.parseColor("#111827"), android.graphics.Color.parseColor("#1F2937"), android.graphics.Color.parseColor("#111827")},
                           null,
                           android.graphics.Shader.TileMode.CLAMP
                       );
@@ -2415,12 +2414,12 @@ jobs:
                       
                       paint.setShader(null);
                       paint.setStyle(android.graphics.Paint.Style.FILL);
-                      paint.setColor(0x0AFFFFFF);
+                      paint.setColor(android.graphics.Color.argb(10, 255, 255, 255));
                       canvas.drawCircle(size / 2, size / 2, 100, paint);
-                      paint.setColor(0x10FFFFFF);
+                      paint.setColor(android.graphics.Color.argb(16, 255, 255, 255));
                       canvas.drawCircle(size / 2, size / 2, 70, paint);
                       
-                      paint.setColor(0xFF818CF8);
+                      paint.setColor(android.graphics.Color.parseColor("#818CF8"));
                       paint.setTextSize(100.0f);
                       paint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
                       paint.setTextAlign(android.graphics.Paint.Align.CENTER);
@@ -2433,7 +2432,7 @@ jobs:
                       android.graphics.Paint.FontMetrics fm = paint.getFontMetrics();
                       float yOffset = (fm.descent + fm.ascent) / 2;
                       
-                      paint.setShadowLayer(8f, 0f, 4f, 0xAA000000);
+                      paint.setShadowLayer(8f, 0f, 4f, android.graphics.Color.argb(170, 0, 0, 0));
                       canvas.drawText(symbol, size / 2, (size / 2) - yOffset, paint);
                       
                       return bitmap;
