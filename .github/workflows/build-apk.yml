@@ -87,12 +87,17 @@ jobs:
               "@capacitor/status-bar": "^6.0.0",
               "@capacitor/text-zoom": "^6.0.0",
               "@capacitor/toast": "^6.0.0",
-              "@capacitor/background-task": "^6.0.0",
-              "@capacitor-community/admob": "^6.0.0-rc.0",
+              "@capacitor/background-runner": "^1.0.0",
+              "@capacitor-community/admob": "^5.5.0",
               "@capacitor-community/text-to-speech": "^6.0.0",
+              "@capawesome/capacitor-biometrics": "^6.0.0",
               "@capawesome/capacitor-file-picker": "^6.0.0",
+              "@capawesome/capacitor-screen-orientation": "^6.0.0",
+              "@capawesome/capacitor-speech-recognition": "^6.0.0",
               "@capgo/capacitor-native-audio": "^6.0.1",
-              "capacitor-music-controls-plugin": "^6.0.0-beta.1"
+              "capacitor-music-controls-plugin": "^6.0.0-beta.1",
+              "capacitor-native-settings": "^6.0.0",
+              "capacitor-video-player": "^6.0.0-rc.3"
             },
             "devDependencies": {
               "@capacitor/cli": "^6.0.0"
