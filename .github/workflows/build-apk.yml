@@ -57,47 +57,74 @@ jobs:
               echo '{"appName":"'"$APP_NAME"'","packageName":"'"$PACKAGE_ID"'","versionName":"'"$VERSION_NAME"'","versionCode":'"$VERSION_CODE"'}' > raw_assets/app_config.json
           fi
 
-      - name: Write Automated package.json with All Required and Compatible Plugins
+      - name: Write Automated package.json with Pinned Capacitor 6.2.x Plugins
         run: |
           cat << 'EOF' > package.json
           {
-            "name": "capacitor-app",
+            "name": "webrunner",
             "version": "1.0.0",
             "description": "Capacitor App built with HopFile Editor",
             "dependencies": {
-              "@capacitor/action-sheet": "^6.0.0",
-              "@capacitor/app": "^6.0.0",
-              "@capacitor/app-launcher": "^6.0.0",
-              "@capacitor/browser": "^6.0.0",
-              "@capacitor/camera": "^6.0.0",
-              "@capacitor/clipboard": "^6.0.0",
-              "@capacitor/device": "^6.0.0",
-              "@capacitor/dialog": "^6.0.0",
-              "@capacitor/filesystem": "^6.0.0",
-              "@capacitor/geolocation": "^6.0.0",
-              "@capacitor/haptics": "^6.0.0",
-              "@capacitor/keyboard": "^6.0.0",
-              "@capacitor/local-notifications": "^6.0.0",
-              "@capacitor/motion": "^6.0.0",
-              "@capacitor/network": "^6.0.0",
-              "@capacitor/preferences": "^6.0.0",
-              "@capacitor/push-notifications": "^6.0.0",
-              "@capacitor/share": "^6.0.0",
-              "@capacitor/splash-screen": "^6.0.0",
-              "@capacitor/status-bar": "^6.0.0",
-              "@capacitor/text-zoom": "^6.0.0",
-              "@capacitor/toast": "^6.0.0",
-              "@capacitor-community/admob": "^6.0.0-rc.0",
-              "@capacitor-community/text-to-speech": "^6.0.0",
-              "@capawesome/capacitor-file-picker": "^6.0.0",
-              "@capgo/capacitor-native-audio": "^6.0.1",
-              "capacitor-music-controls-plugin": "^6.0.0-beta.1",
-              "capacitor-native-settings": "^6.0.0",
-              "capacitor-video-player": "^6.0.0-rc.3",
-              "@capacitor/background-task": "^6.0.0"
+              "@capacitor/core": "6.2.0",
+              "@capacitor/android": "6.2.0",
+              "@capacitor/app": "6.0.2",
+              "@capacitor/app-launcher": "6.0.2",
+              "@capacitor/action-sheet": "6.0.2",
+              "@capacitor/browser": "6.0.3",
+              "@capacitor/camera": "6.1.2",
+              "@capacitor/clipboard": "6.0.2",
+              "@capacitor/device": "6.0.2",
+              "@capacitor/dialog": "6.0.2",
+              "@capacitor/filesystem": "6.0.3",
+              "@capacitor/geolocation": "6.1.0",
+              "@capacitor/haptics": "6.0.2",
+              "@capacitor/keyboard": "6.0.3",
+              "@capacitor/local-notifications": "6.2.0",
+              "@capacitor/motion": "6.0.2",
+              "@capacitor/network": "6.0.3",
+              "@capacitor/preferences": "6.0.3",
+              "@capacitor/share": "6.0.3",
+              "@capacitor/splash-screen": "6.0.3",
+              "@capacitor/status-bar": "6.0.2",
+              "@capacitor/text-zoom": "6.0.2",
+              "@capacitor/toast": "6.0.3",
+              "@capacitor-community/admob": "6.0.0",
+              "@capacitor-community/apple-sign-in": "6.0.0",
+              "@capacitor-community/bluetooth-le": "6.0.1",
+              "@capacitor-community/camera-preview": "6.0.0",
+              "@capacitor-community/contacts": "6.0.1",
+              "@capacitor-community/keep-awake": "5.0.0",
+              "@capacitor-community/media": "6.0.0",
+              "@capacitor-community/sqlite": "6.0.2",
+              "@capacitor-community/text-to-speech": "5.0.1",
+              "@capacitor-community/speech-recognition": "6.0.0",
+              "@capawesome/capacitor-app-update": "6.0.1",
+              "@capawesome/capacitor-app-shortcuts": "6.0.1",
+              "@capawesome/capacitor-badge": "6.0.1",
+              "@capawesome/capacitor-biometrics": "6.0.1",
+              "@capawesome/capacitor-file-picker": "6.2.0",
+              "@capawesome/capacitor-file-opener": "6.0.2",
+              "@capawesome/capacitor-mlkit-barcode-scanning": "6.0.0",
+              "@capawesome/capacitor-nfc": "6.0.1",
+              "@capawesome/capacitor-screen-orientation": "6.0.1",
+              "@capawesome-team/capacitor-android-foreground-service": "6.1.0",
+              "@capawesome/capacitor-firebase-authentication": "6.1.0",
+              "@capawesome/capacitor-firebase-messaging": "6.1.0",
+              "@capawesome/capacitor-firebase-firestore": "6.1.0",
+              "@capgo/capacitor-updater": "6.5.0",
+              "@capgo/native-audio": "7.0.5",
+              "@capgo/capacitor-native-biometric": "6.0.0",
+              "@capgo/inappreview": "6.0.0",
+              "@capgo/capacitor-social-login": "6.0.0",
+              "@capgo/capacitor-screen-recorder": "6.0.0",
+              "@capgo/background-task": "6.0.0",
+              "@transistorsoft/capacitor-background-fetch": "6.0.0",
+              "@transistorsoft/capacitor-background-geolocation": "6.0.0",
+              "capacitor-native-settings": "6.0.0",
+              "capacitor-video-player": "6.0.0-rc.3"
             },
             "devDependencies": {
-              "@capacitor/cli": "^6.0.0"
+              "@capacitor/cli": "6.2.0"
             }
           }
           EOF
@@ -139,7 +166,198 @@ jobs:
               echo "PHP Support is disabled. Skipping native binary download."
           fi
 
-      - name: Sync Web Directory and Plugins to Android Template
+      - name: Clear Legacy Java Packages
+        run: |
+          # Completely clean default Capacitor java structures to prevent R class collisions
+          rm -rf android/app/src/main/java/*
+
+      - name: Inject Custom Native Java Bridges & Resources
+        run: |
+          python3 -m pip install Pillow
+          
+          cat << 'EOF' > build_assets.py
+          import json
+          import os
+          import shutil
+          from PIL import Image
+
+          config_path = "www/app_config.json"
+          config = {}
+          if os.path.exists(config_path):
+              with open(config_path, "r") as f:
+                  config = json.load(f)
+
+          # Extract configuration metrics
+          app_name = config.get("appName", os.environ.get("APP_NAME", "My App"))
+          package_id = config.get("packageName", os.environ.get("PACKAGE_ID", "com.example.runner"))
+          version_name = config.get("versionName", os.environ.get("VERSION_NAME", "1.0.0"))
+          version_code = int(config.get("versionCode", os.environ.get("VERSION_CODE", "1")))
+          theme_color = config.get("themeColor", "#4F46E5")
+          homepage = config.get("homepage", "index.html")
+          screen_rotation = config.get("screenRotation", "auto")
+          splash_bg_color = config.get("splashBgColor", "#111827")
+          
+          # Dynamic Feature Toggles
+          camera_enabled = config.get("cameraEnabled", True)
+          notifications_enabled = config.get("notificationsEnabled", True)
+          local_storage_enabled = config.get("localStorageEnabled", True)
+          microphone_enabled = config.get("microphoneEnabled", True)
+          location_enabled = config.get("locationEnabled", False)
+          biometric_enabled = config.get("biometricEnabled", False)
+          file_transfer_enabled = config.get("fileTransferEnabled", True)
+          clipboard_enabled = config.get("clipboardEnabled", True)
+          double_back_exit_enabled = config.get("doubleBackExitEnabled", True)
+          keep_screen_on_enabled = config.get("keepScreenOnEnabled", True)
+          secure_window_enabled = config.get("secureWindowEnabled", False)
+          external_browser_enabled = config.get("externalBrowserEnabled", True)
+
+          # Auto-detect PHP support
+          has_php_files = any(file.endswith(".php") for root, dirs, files in os.walk("www") for file in files)
+          php_support = config.get("phpSupport", True) and has_php_files
+          php_port = int(config.get("phpPort", 8080))
+
+          # Gradle template using targetSdk 35 for Capacitor 6.2.0 compatibility
+          app_build_gradle_template = """
+          apply plugin: 'com.android.application'
+          android {
+              namespace '__PACKAGE_ID__'
+              compileSdk 35
+              defaultConfig {
+                  applicationId "__PACKAGE_ID__"
+                  minSdk 24
+                  targetSdk 35
+                  versionCode __VERSION_CODE__
+                  versionName "__VERSION_NAME__"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+          }
+          dependencies {
+              implementation fileTree(dir: 'libs', include: ['*.jar'])
+              implementation project(':capacitor-android')
+              implementation 'androidx.webkit:webkit:1.6.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.media:media:1.6.0'
+              implementation 'androidx.biometric:biometric:1.1.0'
+          }
+          """
+          app_build_gradle = app_build_gradle_template.replace("__PACKAGE_ID__", package_id).replace("__VERSION_CODE__", str(version_code)).replace("__VERSION_NAME__", version_name)
+          with open("android/app/build.gradle", "w") as f:
+              f.write(app_build_gradle.strip())
+
+          # Generate system assets XML Configurations
+          os.makedirs("android/app/src/main/res/values", exist_ok=True)
+          colors_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">{theme_color}</color>
+              <color name="colorPrimaryDark">{theme_color}</color>
+              <color name="colorAccent">{theme_color}</color>
+              <color name="splashBg">{splash_bg_color}</color>
+          </resources>
+          """
+          with open("android/app/src/main/res/values/colors.xml", "w") as f:
+              f.write(colors_xml.strip())
+          
+          styles_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="colorPrimary">@color/colorPrimary</item>
+                  <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+                  <item name="colorAccent">@color/colorAccent</item>
+              </style>
+              <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+              </style>
+          </resources>
+          """
+          with open("android/app/src/main/res/values/styles.xml", "w") as f:
+              f.write(styles_xml.strip())
+
+          # Write dynamic strings metadata resource
+          strings_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">{app_name}</string>
+              <string name="title_activity_main">{app_name}</string>
+              <string name="package_name">{package_id}</string>
+          </resources>"""
+          with open("android/app/src/main/res/values/strings.xml", "w") as f:
+              f.write(strings_xml.strip())
+
+          # Setup Android Manifest Injections
+          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
+          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
+          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />' if notifications_enabled else ""
+          storage_p = '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" /><uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" /><uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /><uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /><uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />' if (local_storage_enabled or file_transfer_enabled) else ""
+          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
+          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
+          orientation_mode = "portrait" if screen_rotation == "portrait" else "landscape" if screen_rotation == "landscape" else "unspecified"
+
+          manifest_template = """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="__PACKAGE_ID__">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              {camera_p}
+              {audio_p}
+              {notif_p}
+              {storage_p}
+              {location_p}
+              {biometric_p}
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density"
+                      android:name="{package_id}.MainActivity"
+                      android:label="@string/title_activity_main"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:screenOrientation="{orientation}"
+                      android:theme="@style/AppTheme.NoActionBar">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          """.format(package_id=package_id, camera_p=camera_p, audio_p=audio_p, notif_p=notif_p, storage_p=storage_p, location_p=location_p, biometric_p=biometric_p, orientation=orientation_mode)
+          
+          with open("android/app/src/main/AndroidManifest.xml", "w") as f:
+              f.write(manifest_template)
+
+          # Build package structure and write main activity code
+          package_path = package_id.replace(".", "/")
+          java_dir = f"android/app/src/main/java/{package_path}"
+          os.makedirs(java_dir, exist_ok=True)
+
+          # Bridge Activity linking legacy web bridges with Capacitor core web views
+          main_activity_java = f"""package {package_id};
+          import com.getcapacitor.BridgeActivity;
+          public class MainActivity extends BridgeActivity {{}}
+          """
+          with open(f"{java_dir}/MainActivity.java", "w") as f:
+              f.write(main_activity_java)
+          EOF
+          python3 build_assets.py
+
+      - name: Sync Web Directory Changes to Android Template
         run: |
           echo "Running Capacitor Sync..."
           npx cap sync android
@@ -186,7 +404,7 @@ jobs:
           tag_name: ${{ steps.tag_gen.outputs.TAG_NAME }}
           name: "Release: ${{ env.APP_NAME }} (v${{ env.VERSION_NAME }})"
           body: |
-            Automated Android package build generated via HopFile Editor (Capacitor 6 Engine).
+            Automated Android package build generated via HopFile Editor (Capacitor 6.2.0 Engine).
             - **Package ID:** `${{ env.PACKAGE_ID }}`
             - **Build ID:** `${{ github.run_number }}`
           files: |
