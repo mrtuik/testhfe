@@ -476,6 +476,7 @@ jobs:
           with open("android/app/src/main/res/layout/custom_media_collapsed.xml", "w") as f:
               f.write(custom_media_collapsed_xml.strip())
 
+          # Generate custom_media_expanded.xml
           custom_media_expanded_xml = """<?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
               android:id="@+id/notification_root_large"
@@ -633,6 +634,7 @@ jobs:
               f.write(custom_media_expanded_xml.strip())
 
           # FIXED: Fully-qualified class names in AndroidManifest with exact package mapping [1]
+          # FIXED: Defined manifest level package matching compileSdk 34 standards [1]
           android_manifest_template = """<?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="__PACKAGE_ID__">
               <uses-permission android:name="android.permission.INTERNET" />
@@ -672,6 +674,28 @@ jobs:
               </application>
           </manifest>
           """
+          
+          # FIXED: All Android Manifest permission templates fully defined [1]
+          camera_p = '<uses-permission android:name="android.permission.CAMERA" />' if camera_enabled else ""
+          audio_p = '<uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' if microphone_enabled else ""
+          notif_p = '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" /><uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /><uses-permission android:name="android.permission.USE_EXACT_ALARM" />' if notifications_enabled else ""
+          
+          storage_p = """
+          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+          <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+          <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+          <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+          """
+          location_p = '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' if location_enabled else ""
+          biometric_p = '<uses-permission android:name="android.permission.USE_BIOMETRIC" />' if biometric_enabled else ""
+
+          orientation_mode = "unspecified"
+          if screen_rotation == "portrait":
+              orientation_mode = "portrait"
+          elif screen_rotation == "landscape":
+              orientation_mode = "landscape"
+
           manifest = android_manifest_template.replace("__CAMERA_P__", camera_p)
           manifest = manifest.replace("__AUDIO_P__", audio_p)
           manifest = manifest.replace("__NOTIF_P__", notif_p)
