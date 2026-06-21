@@ -23,6 +23,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ✅ অরিজিনাল Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -37,6 +38,7 @@ jobs:
         with:
           node-version: '20'
 
+      # ✅ অরিজিনাল Gradle 8.2
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -85,7 +87,7 @@ jobs:
               "@capacitor/splash-screen": "^6.0.0",
               "@capacitor/status-bar": "^6.0.0",
               "@capacitor/toast": "^6.0.0",
-              "@capacitor-community/admob": "latest"
+              "@capacitor-community/admob": "^6.0.0"
             },
             "devDependencies": {
               "@capacitor/cli": "^6.2.0"
@@ -93,7 +95,6 @@ jobs:
           }
           EOF
 
-      # ✅ GITHUB CLOUD VENDORING (CACHING) ADDED HERE
       - name: GitHub Cloud Vendoring (Cache node_modules)
         uses: actions/cache@v4
         id: npm-cache
@@ -101,7 +102,6 @@ jobs:
           path: node_modules
           key: ${{ runner.os }}-node-capacitor-6-latest-v1
 
-      # ✅ ONLY INSTALLS IF CACHE IS NOT FOUND
       - name: Install Dependencies (Offline Preferred)
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: npm install --prefer-offline --legacy-peer-deps --no-audit --no-fund
@@ -134,7 +134,6 @@ jobs:
           if not admob_app_id.strip():
               admob_app_id = "ca-app-pub-3940256099942544~3347511713"
 
-          # 1. Patch App build.gradle (Keep Capacitor Plugins intact)
           gradle_path = "android/app/build.gradle"
           if os.path.exists(gradle_path):
               content = open(gradle_path).read()
@@ -142,17 +141,14 @@ jobs:
               content = re.sub(r'versionName\s+"[^"]+"', f'versionName "{version_name}"', content)
               open(gradle_path, 'w').write(content)
 
-          # 2. Patch AndroidManifest.xml (Add AdMob ID & Permissions securely)
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           if os.path.exists(manifest_path):
               manifest = open(manifest_path).read()
               
-              # AdMob Metadata injection
               admob_meta = f'<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{admob_app_id}"/>'
               if "com.google.android.gms.ads.APPLICATION_ID" not in manifest:
                   manifest = manifest.replace("</application>", f"    {admob_meta}\n    </application>")
               
-              # Common Permissions injection
               perms = [
                   '<uses-permission android:name="android.permission.INTERNET" />',
                   '<uses-permission android:name="android.permission.CAMERA" />',
@@ -165,7 +161,6 @@ jobs:
               
               open(manifest_path, 'w').write(manifest)
 
-          # 3. Generate App Icons dynamically from Frontend Base64 Image
           icon_src = "www/_app_icon.png"
           if os.path.exists(icon_src):
               sizes = { "mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96, "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192 }
